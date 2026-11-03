@@ -51,3 +51,32 @@ func TestParseLoginlistResponse(t *testing.T) {
 		t.Logf("  %-11s chatId=%-16d lastLogId=%d preview=%q", r.Type, r.ChatID, r.LastLog, r.Preview)
 	}
 }
+
+// Membership and other room pushes name the chat in whatever key that verb uses; the lookup tolerates
+// the dictionary's short key and one level of nesting, and says no when there is nothing to name.
+func TestPushBodiesNameTheirChat(t *testing.T) {
+	cases := []struct {
+		name string
+		doc  []Elem
+		want int64
+	}{
+		{"spelled out", []Elem{{Key: "chatId", Type: tInt64, Val: int64(484107646109432)}}, 484107646109432},
+		{"dictionary key", []Elem{{Key: "c", Type: tInt64, Val: int64(42)}}, 42},
+		{"nested one level", []Elem{
+			{Key: "room", Type: tDoc, Val: []Elem{{Key: "chatId", Type: tInt64, Val: int64(7)}}},
+		}, 7},
+		{"names nothing", []Elem{{Key: "status", Type: tInt32, Val: int32(0)}}, 0},
+	}
+	for _, tc := range cases {
+		id, ok := ChatIDOfPush(EncodeDoc(tc.doc))
+		if tc.want == 0 {
+			if ok {
+				t.Errorf("%s: found chat %d, want nothing", tc.name, id)
+			}
+			continue
+		}
+		if !ok || id != tc.want {
+			t.Errorf("%s: got %d, %v; want %d", tc.name, id, ok, tc.want)
+		}
+	}
+}

@@ -126,3 +126,34 @@ func arrayElems(v any) []Elem {
 	}
 	return nil
 }
+
+// ChatIDOfPush finds which chat a server push refers to. Not every verb spells the field the same way -
+// some use the shared key dictionary ("c"), others spell it out ("chatId") - and some wrap it in a
+// nested document, so the lookup goes one level down. A push that names no chat is reported as such:
+// guessing a chat id would put the change in the wrong room.
+func ChatIDOfPush(body []byte) (int64, bool) {
+	elems, _, err := DecodeDoc(body, 0)
+	if err != nil {
+		return 0, false
+	}
+	if id, ok := chatIDIn(elems); ok {
+		return id, true
+	}
+	for _, e := range elems {
+		if nested, ok := e.Val.([]Elem); ok {
+			if id, ok := chatIDIn(nested); ok {
+				return id, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func chatIDIn(elems []Elem) (int64, bool) {
+	for _, key := range []string{"chatId", "chatid", "c"} {
+		if id := int64Val(findKey(elems, key)); id != 0 {
+			return id, true
+		}
+	}
+	return 0, false
+}

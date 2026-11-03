@@ -4,6 +4,7 @@ package kknet
 
 import (
 	"testing"
+	"time"
 
 	"github.com/libhwang50/kakaobridge/loco"
 )
@@ -72,5 +73,17 @@ func TestGroupWithNothingToSayAboutItselfNamesNothing(t *testing.T) {
 	name, avatar := groupMeta(groupSummary(), groupMembers(groupSelfID, "Me"), groupSelfID)
 	if name != "" || avatar != "" {
 		t.Errorf("name/avatar = %q/%q, want nothing", name, avatar)
+	}
+}
+
+// A room notice replayed from history is not a change happening now; only the live one is worth a
+// round trip.
+func TestOnlyALiveRoomNoticeIsNews(t *testing.T) {
+	now := time.Unix(1793700000, 0)
+	if !feedIsNews(now.Unix()-10, now) {
+		t.Error("a notice from seconds ago is news")
+	}
+	if feedIsNews(now.Unix()-3600, now) {
+		t.Error("an hour-old notice is history, and the import reads the room anyway")
 	}
 }

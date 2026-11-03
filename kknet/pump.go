@@ -25,6 +25,7 @@ package kknet
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	stdliblog "log"
@@ -558,13 +559,21 @@ func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Fram
 		}
 	case "DECUNREAD":
 		c.handleReadMarker(ctx, log, f)
+	case "NEWMEM":
+		// A member arrived. Measured: inviting someone into a group pushes NEWMEM, not MSG, so the
+		// notice never reaches the chat-log path at all. Kakao's counterpart for a departure has not
+		// been observed yet; anything unhandled is logged with its body, so its name and shape can be
+		// read off a real push instead of guessed here.
+		c.handleMembershipPush(ctx, log, f)
 	case "KICKOUT":
 		// Another connection used this device id - typically one of our own probe tools sharing a
 		// credential. The pump ends and reconnects; the other side is not a Kakao user we can do
 		// anything about.
 		log.Warn().Msg("Kakao closed this session: another connection took the same device id")
 	default:
-		log.Debug().Str("cmd", f.Cmd).Int("body_len", len(f.Body)).Msg("Ignoring a LOCO push")
+		log.Debug().Str("cmd", f.Cmd).Int("body_len", len(f.Body)).
+			Str("body_hex", hex.EncodeToString(f.Body)).
+			Msg("Ignoring a LOCO push")
 	}
 }
 
@@ -583,6 +592,12 @@ func (c *Client) reportSessionClosed() {
 	})
 }
 
+// feedIsNews says whether a room notice describes something happening now rather than something being
+// replayed from history.
+func feedIsNews(sentAt int64, now time.Time) bool {
+	return now.Unix()-sentAt <= 300
+}
+
 // roomEvent acts on a type-0 chat log: an event about the room rather than something someone typed.
 //
 // Kakao's feed text is a sentence in the reader's language, and the server sends no separate membership
@@ -594,6 +609,14 @@ func (c *Client) reportSessionClosed() {
 // never bridged as a message.
 func (c *Client) roomEvent(ctx context.Context, cl loco.ChatLog) {
 	feed, ok := loco.FeedMetaOf(cl)
+	if ok && !feedIsNews(cl.SendAt, time.Now()) {
+		// History being replayed, not a change happening now. The chat-list import already reads the
+		// room, so a round trip per year-old notice is just load.
+		log := c.login.Log.Debug().Int64("chat_id", cl.ChatID).Int64("log_id", cl.LogID).
+			Int("feed_type", feed.FeedType)
+		log.Msg("A Kakao room notice from the past; the room is read by the import anyway")
+		return
+	}
 	log := c.login.Log.Debug().Int64("chat_id", cl.ChatID).Int64("log_id", cl.LogID)
 	if feed != nil {
 		log = log.Int("feed_type", feed.FeedType)
@@ -736,6 +759,27 @@ func readReceiptTarget(bridged []int64, watermark int64) (int64, bool) {
 // read up to this log id"; the log id is the same identifier the bridge already uses as the Matrix-side
 // message id, so the receipt lands on the message the member actually stopped at, and the framework
 // writes it as that member's ghost (or as the bridge user, for a marker about our own account).
+// handleMembershipPush reacts to a NEWMEM/DELMEM push: a member arrived or left. Kakao's own wording of
+// that is a sentence for the client, and the reliable thing to act on is the room's state: re-reading it
+// gives the current members, and because the list is marked full, bridgev2 turns the difference into
+// Matrix joins and leaves.
+func (c *Client) handleMembershipPush(ctx context.Context, log zerolog.Logger, f loco.Frame) {
+	chatID, ok := loco.ChatIDOfPush(f.Body)
+	if !ok {
+		log.Debug().Str("cmd", f.Cmd).Str("body_hex", hex.EncodeToString(f.Body)).
+			Msg("A Kakao membership push named no chat; the next chat list read will see the change")
+		return
+	}
+	log.Info().Int64("chat_id", chatID).Msg("Kakao reports a membership change; refreshing the room")
+	c.mu.Lock()
+	delete(c.rooms, chatID)
+	c.mu.Unlock()
+	if err := c.queueChatResync(ctx, chatID, c.chatTypeFor(ctx, chatID)); err != nil {
+		log.Warn().Err(err).Int64("chat_id", chatID).
+			Msg("Could not refresh a room after a membership change")
+	}
+}
+
 func (c *Client) handleReadMarker(ctx context.Context, log zerolog.Logger, f loco.Frame) {
 	du, err := loco.ParseDecUnread(f.Body)
 	if err != nil {
