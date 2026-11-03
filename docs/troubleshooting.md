@@ -63,6 +63,17 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
 * **`Failed to bridge read receipt … M_NOT_FOUND`** — a receipt was pointed at a synthetic message row.
 * **The self-memo chat has no name or picture** — that chat has no other member to name it after; the
   connector supplies its name and avatar, which an older build did not.
+* **A group room has no name** — three different things: a group that was never named has no name in
+  Kakao either (the phone titles it from its members, so the bridge composes a name of its own), an
+  **Open Chat** room's name and picture are not in the chat protocol at all (`docs/protocol-notes.md`
+  §7b) and are not fetched yet, and a group whose *members* changed may show a stale title until the
+  chat is resynced (`sync-portal` in the room).
+* **A group room has no members' avatars, or two rooms for one chat** — the member list and the chat's
+  class both come from separate calls; if one is refused the room is built with what is known. Two rooms
+  for one chat is fixed in the connector (it used to key an unidentified chat as a shared room); remove
+  the extra one with `!kakaotalk delete-portal` run inside it.
+* **Nobody appears when someone joins or leaves a group** — those are `type 0` membership messages, which
+  the bridge refuses rather than turning into a fake sentence (`docs/protocol-notes.md` §7a).
 * **No space, just rooms** — `bridge.personal_filtering_spaces: true`.
 * **A friend's room has no avatar** — a Kakao account with the default avatar has no profile image URL.
   That is not a failed fetch.
