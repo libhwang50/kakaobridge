@@ -100,6 +100,8 @@ func ParseChatOnRoomResponse(body []byte) (*RoomInfo, error) {
 // Android client.
 func MessageTypeName(t int32) string {
 	switch t {
+	case MsgFeed:
+		return "room event"
 	case MsgText:
 		return "text"
 	case MsgPhoto:
@@ -180,6 +182,7 @@ func IsAnimatedMessageType(t int32) bool {
 }
 
 const (
+	MsgFeed           int32 = 0 // not chat text: an event about the room (invites, joins, team events) - FeedMeta
 	MsgText           int32 = 1 // plain text
 	MsgPhoto          int32 = 2 // photo; attachment carries the signed URL
 	MsgVideo          int32 = 3 // video; attachment carries two encodings

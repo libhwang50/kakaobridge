@@ -156,9 +156,14 @@ A group created **without** a name has no type-3 meta: the phone titles that cas
 locally and in the user's language. It is a client string, not a protocol fact, which is why the bridge
 composes its own label rather than quoting one.
 
-Group rooms also carry system messages: `type 0` whose `message` is JSON such as
-`{"feedType":4,"members":[{"userId":…, "nickName":"…"}]}` ("X joined"). They are membership events, not
-chat text; the bridge currently refuses them as an unknown type.
+Group rooms also carry system messages: `type 0` (`MsgFeed`) whose `message` is a JSON object, not chat
+text — `{"feedType":1,"inviter":…, "members":[…], "byLink":false}` for invitations,
+`{"feedType":4,"members":[…]}` for a member arriving, `{"feedType":18,"eventType":1,
+"eventUser":…}` for a team-chat event. They are the client's centred notices, written in the reader's
+language, so there is nothing to translate; the room's *state* is the useful part. The bridge treats any
+of them as a reason to re-read the chat: the member list is marked full, so bridgev2 turns the difference
+into Matrix joins and leaves, and a renamed room or new room picture follows the same path. Unidentified
+`feedType` values are logged with the event so they can be recognised later.
 
 ### 7b. Open Chat rooms (`OM`)
 

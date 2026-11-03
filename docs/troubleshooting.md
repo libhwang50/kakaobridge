@@ -72,8 +72,11 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
   class both come from separate calls; if one is refused the room is built with what is known. Two rooms
   for one chat is fixed in the connector (it used to key an unidentified chat as a shared room); remove
   the extra one with `!kakaotalk delete-portal` run inside it.
-* **Nobody appears when someone joins or leaves a group** — those are `type 0` membership messages, which
-  the bridge refuses rather than turning into a fake sentence (`docs/protocol-notes.md` §7a).
+* **Someone joined or left a group and the Matrix room did not follow** — Kakao sends membership as a
+  type-0 room notice rather than an event, and the bridge re-reads the chat when one arrives (the member
+  list is full, so bridgev2 turns the difference into joins and leaves). If the room did not change,
+  look for `Kakao reports a change to a room` in the log and the `feed_type` it names — an unrecognised
+  notice is logged rather than guessed. `!kakaotalk sync-portal` in the room forces the re-read.
 * **No space, just rooms** — `bridge.personal_filtering_spaces: true`.
 * **A friend's room has no avatar** — a Kakao account with the default avatar has no profile image URL.
   That is not a failed fetch.

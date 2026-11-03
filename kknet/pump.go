@@ -583,6 +583,47 @@ func (c *Client) reportSessionClosed() {
 	})
 }
 
+// roomEvent acts on a type-0 chat log: an event about the room rather than something someone typed.
+//
+// Kakao's feed text is a sentence in the reader's language, and the server sends no separate membership
+// event to convert, so there is nothing to translate here. What did change is the room's state, and the
+// bridge can follow that: re-reading the chat gives the current members, and bridgev2 turns the
+// difference into joins and leaves because the list is marked full (ChatMemberList.IsFull). A renamed
+// room or a new room picture follows the same path, which is why this does not care which feedType it
+// was. The feed itself is logged with its type - an unidentified one should be recognisable later - and
+// never bridged as a message.
+func (c *Client) roomEvent(ctx context.Context, cl loco.ChatLog) {
+	feed, ok := loco.FeedMetaOf(cl)
+	log := c.login.Log.Debug().Int64("chat_id", cl.ChatID).Int64("log_id", cl.LogID)
+	if feed != nil {
+		log = log.Int("feed_type", feed.FeedType)
+		if feed.Inviter != nil {
+			log = log.Int64("inviter_id", feed.Inviter.UserID)
+		}
+		if named := feed.Named(); len(named) > 0 {
+			ids := make([]int64, 0, len(named))
+			for _, u := range named {
+				ids = append(ids, u.UserID)
+			}
+			log = log.Any("member_ids", ids)
+		}
+	}
+	if !ok {
+		log.Str("text", preview(cl.Text, 120)).
+			Msg("Kakao sent a room event the bridge could not read")
+		return
+	}
+	log.Msg("Kakao reports a change to a room; refreshing it instead of bridging the notice")
+
+	c.mu.Lock()
+	delete(c.rooms, cl.ChatID) // the re-read must not answer from the state this event just changed
+	c.mu.Unlock()
+	if err := c.queueChatResync(ctx, cl.ChatID, c.chatTypeFor(ctx, cl.ChatID)); err != nil {
+		c.login.Log.Warn().Err(err).Int64("chat_id", cl.ChatID).
+			Msg("Could not refresh a room after Kakao reported a change to it")
+	}
+}
+
 // queueChatLog converts one Kakao message into one Matrix message. Kakao's logId is the message id:
 // it is assigned by the server, stable, and increasing, so re-delivery is recognised rather than
 // duplicated.
@@ -591,6 +632,12 @@ func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
 		return nil
 	}
 	if cl.Deleted {
+		return nil
+	}
+	if cl.Type == loco.MsgFeed {
+		// An event about the room, not something typed in it: follow the change instead of inventing a
+		// sentence for it.
+		c.roomEvent(ctx, cl)
 		return nil
 	}
 	c.mu.Lock()
