@@ -1,5 +1,7 @@
 # kakaobridge
 
+[한국어](./docs/README.ko.md)
+
 A Matrix ↔ [KakaoTalk](https://www.kakao.com) puppeting bridge, built on
 [mautrix-go](https://maunium.net/go/mautrix)'s `bridgev2`.
 
