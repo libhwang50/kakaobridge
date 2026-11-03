@@ -2,7 +2,12 @@
 
 package loco
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // RoomInfo is what the LOCO verb ChatOnRoom reports about a single chat: the type, the member ids,
 // and the log/watermark cursors. LOGINLIST gives chat ids, types and previews but *no members*, so
@@ -11,7 +16,7 @@ import "fmt"
 // Wire keys, read from a live response (2026-10-28, os=android):
 //
 //	c  int64   chatId
-//	t  string  "DirectChat" | "MemoChat" | "PlusChat" | ...
+//	t  string  "DirectChat" | "MemoChat" | "PlusChat" | "MultiChat" (a group chat) | "OM" (open chat)
 //	a  array   member userIds (a 1:1 chat lists the other member and self)
 //	l  int64   lastLogId
 //	w  array   read watermarks, one per member, in the same order as `a`
@@ -337,7 +342,28 @@ type ChatSummary struct {
 	// DisplayMembers are the users the client shows for this chat (for a 1:1 chat: the other side),
 	// with nickname and profile image.
 	DisplayMembers []Member
-	PushAlert      bool
+	// Metas are the room-level settings the server keeps for this chat (see ChatMeta). Only group
+	// chats (type MultiChat) carry any.
+	Metas     []ChatMeta
+	PushAlert bool
+}
+
+// ChatMeta is one entry of CHATINFO's chatMetas array: a room-level setting, changed by a member and
+// replayed to everyone. Measured on a MultiChat (Kakao's group chat):
+//
+//	type 3  the room title, in content as plain text
+//	type 4  the room picture, in content as {"imageUrl":…, "fullImageUrl":…}
+//	type 15 team-chat state, in content as {"warehouse":true, "hostId":"…", "revision":N} - its
+//	        presence is what makes a MultiChat a Team Chat, and hostId names the host
+//
+// Other types exist (the client has settings for notifications and such); they are kept verbatim and
+// ignored here.
+type ChatMeta struct {
+	Type      int
+	Revision  int64
+	AuthorID  int64
+	Content   string
+	UpdatedAt int
 }
 
 func ParseGetMemResponse(body []byte) ([]Member, error) {
@@ -387,8 +413,81 @@ func ParseChatInfoResponse(body []byte) (*ChatSummary, error) {
 			cs.DisplayMembers = append(cs.DisplayMembers, memberOf(doc))
 		}
 	}
+	for _, e := range arrayElems(findVal(info, "chatMetas")) {
+		if doc, ok := e.Val.([]Elem); ok {
+			cs.Metas = append(cs.Metas, ChatMeta{
+				Type:      int(int32Val(findVal(doc, "type"))),
+				Revision:  int64Val(findVal(doc, "revision")),
+				AuthorID:  int64Val(findVal(doc, "authorId")),
+				Content:   stringVal(findVal(doc, "content")),
+				UpdatedAt: int(int32Val(findVal(doc, "updatedAt"))),
+			})
+		}
+	}
 	return cs, nil
 }
+
+// Meta returns the first chat meta of the given type, or nil.
+func (cs *ChatSummary) Meta(typ int) *ChatMeta {
+	for i := range cs.Metas {
+		if cs.Metas[i].Type == typ {
+			return &cs.Metas[i]
+		}
+	}
+	return nil
+}
+
+// Title is the room name a group chat was given (chatMeta type 3). An unnamed group has no such meta:
+// the client composes a title from the member list locally, which is why the caller must not treat an
+// empty answer as "this room is nameless to Kakao too".
+func (cs *ChatSummary) Title() string {
+	if m := cs.Meta(chatMetaTitle); m != nil {
+		return strings.TrimSpace(m.Content)
+	}
+	return ""
+}
+
+// RoomImage is the picture a Team Chat can be given (chatMeta type 4), full size first.
+func (cs *ChatSummary) RoomImage() (full, thumb string) {
+	m := cs.Meta(chatMetaImage)
+	if m == nil {
+		return "", ""
+	}
+	var v struct {
+		ImageURL     string `json:"imageUrl"`
+		FullImageURL string `json:"fullImageUrl"`
+	}
+	if err := json.Unmarshal([]byte(m.Content), &v); err != nil {
+		return "", ""
+	}
+	return v.FullImageURL, v.ImageURL
+}
+
+// TeamHost reports the host of a Team Chat; the chatMeta that carries it (type 15) is also what tells
+// a Team Chat from a plain group chat, so its absence is the answer for the latter.
+func (cs *ChatSummary) TeamHost() (int64, bool) {
+	m := cs.Meta(chatMetaTeam)
+	if m == nil {
+		return 0, false
+	}
+	var v struct {
+		HostID string `json:"hostId"`
+	}
+	if err := json.Unmarshal([]byte(m.Content), &v); err != nil {
+		return 0, false
+	}
+	host, err := strconv.ParseInt(strings.TrimSpace(v.HostID), 10, 64)
+	if err != nil || host == 0 {
+		return 0, false
+	}
+	return host, true
+}
+
+const (
+	chatMetaTitle = 3
+	chatMetaImage = 4
+	chatMetaTeam  = 15
+)
 
 func memberOf(elems []Elem) Member {
 	return Member{

@@ -218,6 +218,21 @@ func (c *Client) chatInfoFor(ctx context.Context, chatID int64) (*bridgev2.ChatI
 	if isDirect(chatType) {
 		roomType := database.RoomTypeDM
 		info.Type = &roomType
+	} else {
+		// A group chat: name and picture come from the chat's own metas (docs/protocol-notes.md §7a).
+		name, avatarURL := groupMeta(rd.summary, rd.members, c.meta.UserID)
+		if name != "" {
+			info.Name = &name
+		}
+		if avatarURL != "" {
+			url := avatarURL
+			info.Avatar = &bridgev2.Avatar{
+				ID: networkid.AvatarID(url),
+				Get: func(ctx context.Context) ([]byte, error) {
+					return fetchURL(ctx, url)
+				},
+			}
+		}
 	}
 	members := bridgev2.ChatMemberMap{}
 	for _, m := range rd.members {
@@ -249,6 +264,52 @@ func (c *Client) chatInfoFor(ctx context.Context, chatID int64) (*bridgev2.ChatI
 		}
 	}
 	return info, nil
+}
+
+// groupMeta names a group room and gives it a picture.
+//
+// Kakao keeps a group's name (chatMeta type 3) and, for a Team Chat, its picture (type 4) on the chat
+// itself, so those are the client's own answers and are used as-is. A group created without a name has
+// no type-3 meta: the phone then titles it from the members, so the bridge composes a name the same way
+// rather than leaving the room blank. That composed string is the bridge's label, not a Kakao string -
+// the client's own wording is local to it and locale-dependent.
+func groupMeta(summary *loco.ChatSummary, members []loco.Member, selfUserID int64) (name, avatarURL string) {
+	name = summary.Title()
+	if name == "" {
+		name = otherMemberNames(members, selfUserID)
+	}
+	full, thumb := summary.RoomImage()
+	return name, firstNonEmpty(full, thumb)
+}
+
+// otherMemberNames lists the members besides the bridge's own account, in the order the server gave.
+// Kakao's own title for an unnamed group is the member list; past a few names it shortens it, and the
+// exact cut is a client detail, so this keeps every name and marks the rest with a count.
+func otherMemberNames(members []loco.Member, selfUserID int64) string {
+	var names []string
+	for _, m := range members {
+		if m.UserID == selfUserID || m.UserID == 0 || m.Nickname == "" {
+			continue
+		}
+		names = append(names, m.Nickname)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) > 3 {
+		rest := len(names) - 3
+		return strings.Join(names[:3], ", ") + fmt.Sprintf(" (+%d)", rest)
+	}
+	return strings.Join(names, ", ")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // memoChatMeta says what a MemoChat room is called and what it looks like: the account's own nickname

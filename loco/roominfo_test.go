@@ -468,3 +468,79 @@ func TestDecUnreadNeedsAWatermark(t *testing.T) {
 		t.Error("a read marker with no watermark names no message, so it must be an error")
 	}
 }
+
+// A group chat keeps its name, its picture and its team state in chatMetas on the chat itself. The
+// body below is written from a measured MultiChat answer rather than captured, with names that are not
+// the ones on the account that was measured.
+func TestGroupChatMetasGiveTitlePictureAndHost(t *testing.T) {
+	body := EncodeDoc([]Elem{
+		{Key: "status", Type: tInt32, Val: int32(0)},
+		{Key: "chatInfo", Type: tDoc, Val: []Elem{
+			{Key: "chatId", Type: tInt64, Val: int64(484100000000000)},
+			{Key: "type", Type: tString, Val: "MultiChat"},
+			{Key: "chatMetas", Type: tArr, Val: []Elem{
+				{Key: "0", Type: tDoc, Val: []Elem{
+					{Key: "type", Type: tInt32, Val: int32(3)},
+					{Key: "authorId", Type: tInt64, Val: int64(1)},
+					{Key: "content", Type: tString, Val: "BRIDGE TEST"},
+				}},
+				{Key: "1", Type: tDoc, Val: []Elem{
+					{Key: "type", Type: tInt32, Val: int32(4)},
+					{Key: "content", Type: tString,
+						Val: `{"imageUrl":"https://cdn/small.jpg","fullImageUrl":"https://cdn/full.jpg"}`},
+				}},
+				{Key: "2", Type: tDoc, Val: []Elem{
+					{Key: "type", Type: tInt32, Val: int32(15)},
+					{Key: "content", Type: tString,
+						Val: `{"warehouse":true, "hostId": "447137810", "revision" : 1}`},
+				}},
+				{Key: "3", Type: tDoc, Val: []Elem{
+					{Key: "type", Type: tInt32, Val: int32(1)}, // some other setting: kept, not read
+					{Key: "content", Type: tString, Val: "1"},
+				}},
+			}},
+		}},
+	})
+	cs, err := ParseChatInfoResponse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.Title(); got != "BRIDGE TEST" {
+		t.Errorf("Title() = %q, want the type-3 content", got)
+	}
+	if full, thumb := cs.RoomImage(); full != "https://cdn/full.jpg" || thumb != "https://cdn/small.jpg" {
+		t.Errorf("RoomImage() = %q, %q", full, thumb)
+	}
+	if host, ok := cs.TeamHost(); !ok || host != 447137810 {
+		t.Errorf("TeamHost() = %d, %v", host, ok)
+	}
+	if len(cs.Metas) != 4 {
+		t.Errorf("chatMetas are kept verbatim so a later type can be read; got %d", len(cs.Metas))
+	}
+}
+
+// A group created without a name has no type-3 meta, and a plain group has no type-15 one: the client
+// titles that case from the member list itself, so the parser must invent nothing.
+func TestGroupChatWithoutMetasNamesNothing(t *testing.T) {
+	body := EncodeDoc([]Elem{
+		{Key: "status", Type: tInt32, Val: int32(0)},
+		{Key: "chatInfo", Type: tDoc, Val: []Elem{
+			{Key: "chatId", Type: tInt64, Val: int64(1)},
+			{Key: "type", Type: tString, Val: "MultiChat"},
+			{Key: "chatMetas", Type: tArr, Val: []Elem{}},
+		}},
+	})
+	cs, err := ParseChatInfoResponse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.Title(); got != "" {
+		t.Errorf("Title() = %q, want nothing", got)
+	}
+	if _, ok := cs.TeamHost(); ok {
+		t.Error("a MultiChat with no type-15 meta is not a Team Chat")
+	}
+	if full, thumb := cs.RoomImage(); full != "" || thumb != "" {
+		t.Errorf("RoomImage() = %q, %q, want nothing", full, thumb)
+	}
+}
