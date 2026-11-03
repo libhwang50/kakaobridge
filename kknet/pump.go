@@ -559,11 +559,9 @@ func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Fram
 		}
 	case "DECUNREAD":
 		c.handleReadMarker(ctx, log, f)
-	case "NEWMEM":
-		// A member arrived. Measured: inviting someone into a group pushes NEWMEM, not MSG, so the
-		// notice never reaches the chat-log path at all. Kakao's counterpart for a departure has not
-		// been observed yet; anything unhandled is logged with its body, so its name and shape can be
-		// read off a real push instead of guessed here.
+	case "NEWMEM", "DELMEM":
+		// A member arrived or left. Measured: membership changes are pushed under their own verbs rather
+		// than as MSG, so they never reach the message path on their own.
 		c.handleMembershipPush(ctx, log, f)
 	case "KICKOUT":
 		// Another connection used this device id - typically one of our own probe tools sharing a
@@ -764,6 +762,18 @@ func readReceiptTarget(bridged []int64, watermark int64) (int64, bool) {
 // gives the current members, and because the list is marked full, bridgev2 turns the difference into
 // Matrix joins and leaves.
 func (c *Client) handleMembershipPush(ctx context.Context, log zerolog.Logger, f loco.Frame) {
+	// Both verbs measured so far carry an ordinary chat log of the room-event kind, naming the member and
+	// saying what happened in the feedType field. Sending it down the same path as any other type-0
+	// message means one place decides what a room notice does: re-read the room.
+	if logs, _, err := loco.ParseChatLogs(f.Body); err == nil {
+		for _, cl := range logs {
+			if err := c.queueChatLog(ctx, cl); err != nil {
+				log.Warn().Err(err).Int64("chat_id", cl.ChatID).Int64("log_id", cl.LogID).
+					Msg("Failed to follow a Kakao membership change")
+			}
+		}
+		return
+	}
 	chatID, ok := loco.ChatIDOfPush(f.Body)
 	if !ok {
 		log.Debug().Str("cmd", f.Cmd).Str("body_hex", hex.EncodeToString(f.Body)).

@@ -90,3 +90,19 @@ func TestFeedNeedsAFeedType(t *testing.T) {
 		t.Error("a type-1 log is chat text whatever its body says")
 	}
 }
+
+// A member leaving: measured from the DELMEM push, whose chat log says who left and that they were
+// removed rather than gone by choice.
+func TestFeedMemberLeaving(t *testing.T) {
+	cl := ChatLog{Type: MsgFeed, Text: `{"member":{"userId":32640287,"nickName":"nick"},"kicked":true,"hidden":false,"feedType":2}`}
+	feed, ok := FeedMetaOf(cl)
+	if !ok || feed.FeedType != 2 {
+		t.Fatalf("feedType 2: got %+v, %v", feed, ok)
+	}
+	if feed.Member == nil || feed.Member.UserID != 32640287 || feed.Kicked == nil || !*feed.Kicked {
+		t.Errorf("departure: got %+v, %v", feed.Member, feed.Kicked)
+	}
+	if named := feed.Named(); len(named) != 1 || named[0].UserID != 32640287 {
+		t.Errorf("a departure names the member who left; got %+v", named)
+	}
+}

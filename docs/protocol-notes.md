@@ -95,7 +95,9 @@ cost hours:
 * **Field order is significant** for some verbs, which is why the request builders do not use maps.
 
 The login frame carries the token and device id; `LOGINLIST` returns the chat list (§6); `PING` keeps
-the session alive; the server pushes `MSG`, `DECUNREAD`, `NOTIREAD` and friends on the same socket.
+the session alive. The server pushes on the same socket: messages as `MSG`, read markers as `DECUNREAD`,
+membership changes as `NEWMEM`/`DELMEM` (§7a). A verb the bridge does not handle is logged with its body
+in hex, so its name and shape can be read off a real event rather than guessed at.
 `Session.LastLoginlist` is exposed because the chat list arrives during the handshake, before any call
 could ask for it.
 
@@ -158,12 +160,22 @@ composes its own label rather than quoting one.
 
 Group rooms also carry system messages: `type 0` (`MsgFeed`) whose `message` is a JSON object, not chat
 text — `{"feedType":1,"inviter":…, "members":[…], "byLink":false}` for invitations,
+`{"feedType":2,"member":…, "kicked":true}` for a departure (`kicked` says removed rather than left),
 `{"feedType":4,"members":[…]}` for a member arriving, `{"feedType":18,"eventType":1,
 "eventUser":…}` for a team-chat event. They are the client's centred notices, written in the reader's
 language, so there is nothing to translate; the room's *state* is the useful part. The bridge treats any
 of them as a reason to re-read the chat: the member list is marked full, so bridgev2 turns the difference
 into Matrix joins and leaves, and a renamed room or new room picture follows the same path. Unidentified
 `feedType` values are logged with the event so they can be recognised later.
+
+A change does not have to wait for history: inviting a member pushes `NEWMEM`, removing one pushes
+`DELMEM`, and both bodies are ordinary chat logs of this kind — not `MSG`, which is why membership would
+otherwise never reach the bridge live. `loco.ChatIDOfPush` reads the chat from such a body even when the
+verb abbreviates the key, and says no rather than guessing a room.
+
+The Team Chat management screen offers roles the wire does not show the bridge: invite/remove members,
+manage access, assign or remove an admin, reassign the host. Only `hostId` in the type-15 meta names a
+role, so the bridge has no basis for Matrix power levels beyond that.
 
 ### 7b. Open Chat rooms (`OM`)
 

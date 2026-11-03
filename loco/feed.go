@@ -14,13 +14,16 @@ import (
 // Three shapes, all measured on the bridge's own device (a Regular Chat, a Team Chat and an Open Chat
 // room, 2026-11-03):
 //
-//	{"feedType":1,"inviter":{…},"members":[…],"byLink":false}   members were invited
-//	{"feedType":4,"members":[…]}                                 a member arrived (open chat room)
-//	{"feedType":18,"eventType":1,"eventUser":{…}}                a team-chat event
+//	{"feedType":1,"inviter":{…},"members":[…],"byLink":false}          members were invited
+//	{"feedType":2,"member":{…},"kicked":true,"hidden":false}          a member left; kicked says whether
+//	                                                                  they were removed
+//	{"feedType":4,"members":[…]}                                      a member arrived (open chat room)
+//	{"feedType":18,"eventType":1,"eventUser":{…}}                     a team-chat event
 //
 // The invitation and the arrival say the same thing in different shapes, and the team event says
 // something we have not identified. What is certain is that the member list changed, or that the room
-// itself did.
+// itself did. The first and the third also reach the device as NEWMEM pushes, the second as DELMEM
+// ("roominfo.go" ChatIDOfPush), so a change is not only visible in history.
 type FeedMeta struct {
 	FeedType  int        `json:"feedType"`
 	ByLink    bool       `json:"byLink"`
@@ -28,6 +31,11 @@ type FeedMeta struct {
 	Inviter   *FeedUser  `json:"inviter"`
 	EventUser *FeedUser  `json:"eventUser"`
 	Members   []FeedUser `json:"members"`
+	// Member names the one person a notice is about, which is how a departure is described. Kicked says
+	// whether they were removed by someone else rather than left on their own.
+	Member *FeedUser `json:"member"`
+	Kicked *bool     `json:"kicked"`
+	Hidden *bool     `json:"hidden"`
 }
 
 // FeedUser is one person named by a feed message. The nickname is the room-visible one, which is not
@@ -63,6 +71,9 @@ func FeedMetaOf(cl ChatLog) (*FeedMeta, bool) {
 func (fm *FeedMeta) Named() []FeedUser {
 	if len(fm.Members) > 0 {
 		return fm.Members
+	}
+	if fm.Member != nil {
+		return []FeedUser{*fm.Member}
 	}
 	if fm.EventUser != nil {
 		return []FeedUser{*fm.EventUser}
