@@ -3,6 +3,7 @@
 package kknet
 
 import (
+	"context"
 	"testing"
 
 	"maunium.net/go/mautrix/bridgev2"
@@ -134,5 +135,28 @@ func TestBridgedIndexStaysSortedAndUnique(t *testing.T) {
 	c.rememberBridged(9, 0)
 	if len(c.bridged) != 1 {
 		t.Errorf("a chat or log id of zero must not create an entry: %v", c.bridged)
+	}
+}
+
+// A push can arrive for a chat the chat list never named - a friend chat created a minute ago. Treating
+// an unknown chat as shared keys a second, receiver-less Matrix room for a chat that is bridged
+// correctly seconds later, which is what happened to a real friend chat. So the type is looked up and
+// remembered: this pins that the remembered type is what keys the portal, and that a chat which cannot
+// be identified is reported as unknown rather than guessed at.
+func TestAPushForAChatTheListNeverNamedResolvesItsType(t *testing.T) {
+	c := testClient()
+	const newChat = int64(484107856220897)
+	c.mu.Lock()
+	c.seenChats[newChat] = "DirectChat" // what the lookup leaves behind once CHATINFO has answered
+	c.mu.Unlock()
+
+	typ := c.chatTypeFor(context.Background(), newChat)
+	key := c.portalKeyFor(newChat, typ)
+	if key.Receiver == "" {
+		t.Errorf("a 1:1 chat must key to this login: type=%q key=%+v", typ, key)
+	}
+
+	if got := c.chatTypeFor(context.Background(), newChat+1); got != "" {
+		t.Errorf("a chat with no session and no cache entry = %q, want it left unknown", got)
 	}
 }

@@ -544,3 +544,46 @@ func TestGroupChatWithoutMetasNamesNothing(t *testing.T) {
 		t.Errorf("RoomImage() = %q, %q, want nothing", full, thumb)
 	}
 }
+
+// CHATINFO spells the profile-image keys out; a GETMEM member uses the shared key dictionary instead
+// (pi / fpi / opi, measured on an open chat room and a MultiChat). Both spellings reach memberOf, so a
+// room built from GETMEM still gets its members' pictures.
+func TestMemberImagesAreReadInBothKeySpellings(t *testing.T) {
+	cases := map[string][]Elem{
+		"CHATINFO spelling": {
+			{Key: "nickName", Type: tString, Val: "someone"},
+			{Key: "profileImageUrl", Type: tString, Val: "https://cdn/thumb.jpg"},
+			{Key: "fullProfileImageUrl", Type: tString, Val: "https://cdn/full.jpg"},
+		},
+		"GETMEM spelling": {
+			{Key: "nickName", Type: tString, Val: "someone"},
+			{Key: "pi", Type: tString, Val: "https://cdn/thumb.jpg"},
+			{Key: "fpi", Type: tString, Val: "https://cdn/full.jpg"},
+			{Key: "opi", Type: tString, Val: "https://cdn/original.jpg"},
+		},
+	}
+	for name, member := range cases {
+		body := EncodeDoc([]Elem{
+			{Key: "status", Type: tInt32, Val: int32(0)},
+			{Key: "members", Type: tArr, Val: []Elem{
+				{Key: "0", Type: tDoc, Val: append([]Elem{{Key: "userId", Type: tInt64, Val: int64(7)}}, member...)},
+			}},
+		})
+		members, err := ParseGetMemResponse(body)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(members) != 1 {
+			t.Fatalf("%s: got %d members", name, len(members))
+		}
+		if members[0].Nickname != "someone" {
+			t.Errorf("%s: nickname = %q", name, members[0].Nickname)
+		}
+		if got := members[0].FullProfileImageURL; got != "https://cdn/full.jpg" {
+			t.Errorf("%s: full image = %q, want the full-size one", name, got)
+		}
+		if got := members[0].ProfileImageURL; got != "https://cdn/thumb.jpg" {
+			t.Errorf("%s: thumb = %q", name, got)
+		}
+	}
+}

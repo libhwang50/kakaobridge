@@ -494,12 +494,18 @@ func memberOf(elems []Elem) Member {
 		UserID:    int64Val(findVal(elems, "userId")),
 		AccountID: int64Val(findVal(elems, "accountId")),
 		Nickname:  stringVal(findVal(elems, "nickName")),
+		// Two key spellings, both measured: CHATINFO's displayMembers spell these out
+		// (profileImageUrl / fullProfileImageUrl / originalProfileImageUrl) while a GETMEM member uses the
+		// shared dictionary's short keys (pi / fpi / opi), so both are read. A room avatar asks for the
+		// full-size one; a 110x110 thumb is only good enough for a contact list.
 		ProfileImageURL: firstNonEmpty(stringVal(findVal(elems, "profileImageUrl")),
-			stringVal(findVal(elems, "fullProfileImageUrl")),
-			stringVal(findVal(elems, "originalProfileImageUrl"))),
+			stringVal(findVal(elems, "pi")),
+			stringVal(findVal(elems, "fullProfileImageUrl")), stringVal(findVal(elems, "fpi")),
+			stringVal(findVal(elems, "originalProfileImageUrl")), stringVal(findVal(elems, "opi"))),
 		FullProfileImageURL: firstNonEmpty(stringVal(findVal(elems, "fullProfileImageUrl")),
-			stringVal(findVal(elems, "originalProfileImageUrl")),
-			stringVal(findVal(elems, "profileImageUrl"))),
+			stringVal(findVal(elems, "fpi")),
+			stringVal(findVal(elems, "originalProfileImageUrl")), stringVal(findVal(elems, "opi")),
+			stringVal(findVal(elems, "profileImageUrl")), stringVal(findVal(elems, "pi"))),
 		StatusMessage: stringVal(findVal(elems, "statusMessage")),
 		Suspended:     boolVal(findVal(elems, "suspended")),
 		Memorial:      boolVal(findVal(elems, "memorial")),

@@ -142,6 +142,35 @@ func isDirect(chatType string) bool {
 
 func chatTypeOf(t string) string { return strings.TrimSpace(t) }
 
+// chatTypeFor answers whether a chat is 1:1 or shared, asking Kakao when the chat list has not named it
+// yet. A push can arrive for a chat created after the last LOGINLIST - a new friend chat, a group someone
+// just made - and the type decides the portal key: a 1:1 room belongs to this login (it carries the login
+// as receiver), a group does not. Assuming "group" for an unknown chat is what once left a second,
+// receiver-less Matrix room for a friend chat that was bridged correctly a moment later, so the type is
+// looked up and remembered rather than guessed.
+//
+// An empty answer means the lookup failed (no session, or the chat is gone). The caller still gets the
+// message - dropping a message is worse than a room that may need to be merged - but it is logged.
+func (c *Client) chatTypeFor(ctx context.Context, chatID int64) string {
+	c.mu.Lock()
+	known := c.seenChats[chatID]
+	c.mu.Unlock()
+	if known != "" {
+		return known
+	}
+	rd, err := c.room(ctx, chatID)
+	if err != nil {
+		c.login.Log.Warn().Err(err).Int64("chat_id", chatID).
+			Msg("Kakao referenced a chat the bridge could not identify; its room may be keyed wrong")
+		return ""
+	}
+	typ := chatTypeOf(rd.summary.Type)
+	c.mu.Lock()
+	c.seenChats[chatID] = typ
+	c.mu.Unlock()
+	return typ
+}
+
 // ingestChatList turns the chats LOGINLIST named into Matrix rooms.
 func (c *Client) ingestChatList(ctx context.Context, state *loco.RoomState) {
 	log := c.login.Log
@@ -558,7 +587,6 @@ func (c *Client) reportSessionClosed() {
 // it is assigned by the server, stable, and increasing, so re-delivery is recognised rather than
 // duplicated.
 func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
-	_ = ctx
 	if cl.ChatID == 0 || cl.LogID == 0 {
 		return nil
 	}
@@ -568,6 +596,9 @@ func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
 	c.mu.Lock()
 	chatType := c.seenChats[cl.ChatID]
 	c.mu.Unlock()
+	if chatType == "" {
+		chatType = c.chatTypeFor(ctx, cl.ChatID)
+	}
 
 	// Any type that is not text, not media and not a known channel card is recorded rather than silently
 	// turned into a placeholder: that is how the type table gets completed instead of guessed.
@@ -668,6 +699,9 @@ func (c *Client) handleReadMarker(ctx context.Context, log zerolog.Logger, f loc
 	chatType := c.seenChats[du.ChatID]
 	bridged := append([]int64(nil), c.bridged[du.ChatID]...)
 	c.mu.Unlock()
+	if chatType == "" {
+		chatType = c.chatTypeFor(ctx, du.ChatID)
+	}
 
 	target, ok := readReceiptTarget(bridged, du.Watermark)
 	if !ok {

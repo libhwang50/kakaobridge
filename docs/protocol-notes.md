@@ -108,6 +108,19 @@ could ask for it.
 sessions hold which chats, the client calls the drawer REST API (`/{agent}/friends/diff.json`). The
 bridge reads the LOCO list; `cmd/kksessions` prints both so a mismatch can be seen.
 
+Each entry's `t` names the chat class, and the classes differ in more than the label — measured values:
+
+| `t` | what it is | what the entry carries |
+|---|---|---|
+| `DirectChat` | a friend chat | `i` member ids, `k` nicknames |
+| `MemoChat` | the account's own notes | one member: the account |
+| `PlusChat` | a channel / plus friend | `i`, `k` (the channel name) |
+| `MultiChat` | a group chat — Regular or Team | `i`, `k`; name and picture live in `chatMetas` (§7a) |
+| `OM` | an Open Chat room | **no** `i`/`k`, no title — see §7b |
+
+A group needs two or more people besides the account: inviting one friend gives a `DirectChat`, not a
+group.
+
 ## 7. Rooms, members, read markers
 
 `loco/roominfo.go`, `kknet/pump.go`.
@@ -115,11 +128,45 @@ bridge reads the LOCO list; `cmd/kksessions` prints both so a mismatch can be se
 * `ChatOnRoom` (`c`/`a`/`l`), `CHATINFO` (`chatInfo`, `displayMembers`), `GETMEM` (`members`,
   `nickName`) — the bridge needs all three because each answers something the others don't, and a
   parser that reads the wrong key fails silently as "a room with no members".
-* Members carry three profile image sizes: `profileImageUrl` (a thumbnail), `fullProfileImageUrl` and
-  `originalProfileImageUrl`. A Matrix room avatar should use the full-size one.
+* Members carry three profile image sizes, spelled two ways: `CHATINFO`'s `displayMembers` use
+  `profileImageUrl` / `fullProfileImageUrl` / `originalProfileImageUrl`, a `GETMEM` member uses the
+  shared key dictionary — `pi` / `fpi` / `opi`. A Matrix room avatar should use the full-size one.
 * A **`DECUNREAD`** push names a `logId` and says how far a member has read. Kakao has no
   per-message receipt, so the bridge maps it onto the nearest older bridged message
   (`docs/bridgev2-notes.md`).
+
+### 7a. Group chats (`MultiChat`)
+
+Measured on a Regular Chat and a Team Chat created for the purpose (`cmd/locoprobe` with the bridge's
+own credential). A group chat's identity is not in the chat-list entry; it is in `chatMetas` on the
+`CHATINFO` answer — a list of room-level settings, each `{type, revision, authorId, content,
+updatedAt}`, changed by a member and replayed to everyone:
+
+| `type` | meaning | `content` |
+|---|---|---|
+| `3` | the room name the members chose | plain text |
+| `4` | the room picture (Team Chats can have one) | `{"imageUrl":…₁₁₀, "fullImageUrl":…}` |
+| `15` | team state — **its presence is what makes a `MultiChat` a Team Chat** | `{"warehouse":true, "hostId":"…", "revision":N}` |
+
+So a Regular Chat and a Team Chat are the same wire type; only the type-15 meta tells them apart, and
+the host is `hostId`. There is no separate role list per member in `GETMEM` — its members carry
+`type`/`mt`/`ptp` numbers whose meaning is not established.
+
+A group created **without** a name has no type-3 meta: the phone titles that case from the member list,
+locally and in the user's language. It is a client string, not a protocol fact, which is why the bridge
+composes its own label rather than quoting one.
+
+Group rooms also carry system messages: `type 0` whose `message` is JSON such as
+`{"feedType":4,"members":[{"userId":…, "nickName":"…"}]}` ("X joined"). They are membership events, not
+chat text; the bridge currently refuses them as an unknown type.
+
+### 7b. Open Chat rooms (`OM`)
+
+An Open Chat room appears in the chat list, and `CHATINFO`/`GETMEM` answer for it — but LOCO gives no
+title, no picture and no member ids: `chatInfo` has `activeMembersCount`, an empty `displayMembers`, and
+fields only these rooms carry (`li`, `otk`), and the `chatDatas` entry has null `i`/`k`. `GETMEM` does
+list the participants. The room's name and thumbnail come from the open-chat service over REST, which
+this bridge does not call — so an Open Chat room bridges as a room with messages and members, unnamed.
 
 ## 8. Chat logs and attachment JSON
 
