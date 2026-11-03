@@ -1,0 +1,22 @@
+# built binaries (go build ./cmd/x writes x into the working directory)
+/kakaobridge
+/bsondump
+/kkread
+/kkdump
+/kkrenew
+/kksessions
+/locoauth
+/locoprobe
+
+secrets/
+harvest.json
+*.env
+registration.yaml
+config.yaml
+*.log
+bridgedb*
+
+# Captured Kakao traffic from a personal account: real names, chat ids and message text. The tests
+# that use it skip when it is absent - see loco/testdata/README.md and testdata/README.md.
+loco/testdata/*.hex
+testdata/*.bin

@@ -1,0 +1,19 @@
+.git
+.gitignore
+*.db
+*.db-*
+*.log
+secrets/
+logs/
+harvest.json
+registration.yaml
+config.yaml
+# built binaries
+/kakaobridge
+/bsondump
+/kkread
+/kkdump
+/kkrenew
+/kksessions
+/locoauth
+/locoprobe

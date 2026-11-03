@@ -1,0 +1,140 @@
+# kakaobridge
+
+A Matrix ↔ [KakaoTalk](https://www.kakao.com) puppeting bridge, built on
+[mautrix-go](https://maunium.net/go/mautrix)'s `bridgev2`.
+
+KakaoTalk has no public bot or messaging API, so this bridge speaks the protocol the shipped apps
+speak: the LOCO chat socket and the account REST endpoints, reverse-engineered from the Android and
+Windows clients (`loco`, `kakao`, `media`). On the Matrix side it is an ordinary appservice, so
+portals, ghosts, encryption, the management room and provisioning come from `bridgev2` rather than
+from this repository.
+
+Signing in registers the bridge as a **mobile sub-device** of your Kakao account: it shows a 4-digit
+code, you type that code in KakaoTalk on a device that is already signed in, and the bridge then holds
+a credential it can renew by itself. That is also the constraint to know up front — Kakao allows **one
+mobile sub-device per account**, so one Kakao account can be bridged by one bridge instance.
+
+## What bridges today
+
+| | KakaoTalk → Matrix | Matrix → KakaoTalk |
+|---|---|---|
+| text | ✅ | ✅ (`m.text`, `m.notice`, `m.emote`) |
+| photos, stickers | ✅ (animated stickers stay animated) | ✅ JPEG/PNG/GIF/WebP |
+| video, files | ✅ | ✅ mp4 fully; webm/mkv/mov are re-encoded by Kakao; files depend on Kakao's own extension list |
+| voice notes | ✅ | ❌ not implemented |
+| captions | — | ⚠️ Kakao has no caption on a photo, so a Matrix caption arrives as its own message |
+| read receipts | ✅ (`m.read`) | ❌ not implemented |
+| edits, deletions | ❌ | ❌ |
+| history | ✅ the chat list and its recent messages are bridged on login | — |
+| rooms | DMs, group chats, the self-memo chat; grouped under a personal space | ⚠️ creating a Kakao chat from Matrix is not implemented |
+
+End-to-end encryption, double puppeting (`login-matrix`), relay mode and the multi-user state machine
+are mautrix features and work here as they do in other bridgev2 bridges.
+
+## Requirements
+
+* A homeserver with appservice support (Tuwunel, Synapse, …).
+* PostgreSQL — that is what this bridge is developed and run against; mautrix also speaks SQLite and
+  it should work, but it is not tested here.
+* A Kakao account, and one device already signed in to KakaoTalk where you can type the 4-digit code.
+* Go 1.27 or Docker.
+
+## Getting started
+
+```bash
+git clone https://github.com/libhwang50/kakaobridge && cd kakaobridge
+make build                                   # -tags goolm: pure-Go olm, no libolm needed
+./kakaobridge --config config.yaml --generate-example-config
+$EDITOR config.yaml                          # database, homeserver, and the network: section below
+./kakaobridge --config config.yaml --generate-registration   # writes registration.yaml
+```
+
+Install `registration.yaml` into your homeserver the usual way
+(see [registering appservices](https://docs.mau.fi/bridges/general/registering-appservices.html)), then
+start the bridge and open a DM with the bot:
+
+```
+login
+```
+
+The bot asks for your Kakao account id and password, then shows a 4-digit code to type in KakaoTalk on
+a device that is already signed in. When that is approved, the bridge starts a session, brings in your
+chat list, and invites you to the rooms.
+
+### With Docker
+
+```dockerfile
+# docker-compose.yaml (sketch)
+services:
+  kakaobridge:
+    build: .
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+```
+
+The image builds as uid 65532 (`nonroot`), so everything it writes under `/data` — `config.yaml`,
+`registration.yaml` — belongs to that user.
+
+### Configuration
+
+The interesting part is the `network:` section; everything else is mautrix's own
+[bridge config](https://docs.mau.fi/bridges/go/setup.html). `docs/configuration.md` documents both, and
+writes the example config to disk with `--generate-example-config`.
+
+| key | default | what it does |
+|---|---|---|
+| `ask_for_credentials` | `false` | the login flow asks for account id and password in the management room. Either way they are needed: if they are not in the config, the bridge asks. With `false` and both set here, a second Matrix user cannot log in. |
+| `account` / `password` | — | your Kakao account. The password is not only for the first login: Kakao renews a **registered** device with the account password, so the bridge needs it to keep the session alive. It is stored in the database against your login. |
+| `agent` | `android` | `android` registers a durable mobile sub-device that can renew itself; `win32` is the PC-client namespace, whose sessions are throwaway. There is no reason to use `win32` unless you are experimenting. |
+| `app_version` | `26.9.1` | the client build to announce. It must match the build the device was registered with; Kakao rejects a mismatch. This is also the build the protocol was measured against — if Kakao changes something, this is the first thing to check. |
+| `device.name` | `kakaobridge` | what your account's device list shows on the phone. |
+| `device.model`, `device.os_version`, `x_vc`, `language`, `mccmnc` | sensible defaults | the fields the shipped clients send. `mccmnc` defaults to a Korean carrier code; set it if you are not in Korea. |
+| `tokens_file`, `tokens_mxid` | empty | import an already-registered device instead of running the passcode flow again — the JSON written by `cmd/locoauth`. Kakao allows one mobile sub-device per account, so after wiping the database you either import the old identity or re-register. |
+
+The bot's Matrix display name and avatar are mautrix's `appservice.bot.displayname` /
+`appservice.bot.avatar` (an `mxc://` URI; `remove` clears it). A default avatar ships with the bridge;
+setting a value overrides it.
+
+## What can go wrong
+
+The bridge reports its state to the management room (`CONNECTED`, `TRANSIENT_DISCONNECT`,
+`BAD_CREDENTIALS`, …) with what it means in plain text. The ones worth knowing:
+
+* **`status 12`** — Kakao did not accept the account id or password. Usually a stale `network.password`.
+* **`-100`** — the device is no longer usable: it was deregistered, or the account approved *another*
+  mobile device and this one was replaced. Re-run `login`.
+* **`KICKOUT`** — something else started a session with the same device credential. One session per
+  device, so stop the other one (running `cmd/locoprobe` with your bridge's tokens will do exactly
+  this).
+* **Your homeserver cannot reach the appservice** — usually the appservice URL points at an address
+  that no longer exists after a restart. Give the container a stable address, or point the
+  registration at it.
+* **Test failures about missing `testdata`** — the captures under `*/testdata/` are traffic from a
+  personal account and are deliberately not published; those tests skip. `loco/testdata/README.md`
+  explains how to record your own.
+
+## Documentation
+
+* `docs/configuration.md` — every `network:` key, and the homeserver/appservice keys that matter.
+* `docs/deployment.md` — building, the container, compose layout, registering the appservice, what
+  survives wiping the database.
+* `docs/troubleshooting.md` — symptoms to causes.
+* `docs/protocol-notes.md` — what Kakao's protocols actually do, as measured, and which code depends on
+  it. This is the contract the implementation follows; Kakao's protocol is undocumented and can change
+  without notice, so compare against a current client when something breaks.
+* `docs/bridgev2-notes.md` — the mautrix framework contracts this bridge relies on, for anyone extending
+  it.
+
+## Not affiliated with Kakao
+
+KakaoTalk is a trademark of KakaoCorp. This project is not affiliated with, endorsed by, or sponsored by
+them.
+
+## Generative AI usage disclosure
+
+This project was AI-assisted with locally hosted Qwen3.8-Flash-Next.
+
+## License
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
