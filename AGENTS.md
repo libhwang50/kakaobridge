@@ -20,10 +20,13 @@ make vet
 * CGO stays on (mautrix links `go-sqlite3`). If the link step says `disk quota exceeded`, the Makefile's
   `GOTMPDIR=/dev/shm` is the fix — keep it.
 * There is no lint step. `gofmt -l .` must be empty before committing.
-* Tests must not need the network, a homeserver, or Kakao. Everything that talks to Kakao lives behind
-  small interfaces (`loco.Session`, `kakao.Client`) and is faked in tests; `loco/session_test.go` decodes
-  what the real `Session` puts on the wire over a `net.Pipe()`, which is why changing a commit body must
-  come with a change there.
+* Tests never need the network, a homeserver, or Kakao. What they cover is the decisions - the conversion
+  functions, the capability list, the config and upgrade rules, the read-receipt target choice - plus one
+  wire level: `loco/session_test.go` drives a real `Session` over a `net.Pipe()` and decodes what it
+  actually sends, which is why changing a `WRITE`/`WRITEMEDIA` body must come with a change there.
+  There is no fake `loco.Session`/`kakao.Client` in the tree; `loco.Session` is a struct, not an
+  interface. If a new test genuinely needs to fake one, introduce the interface deliberately rather than a
+  one-off stub.
 
 ## Map
 
