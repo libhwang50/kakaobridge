@@ -126,6 +126,12 @@ The bridge reports its state to the management room (`CONNECTED`, `TRANSIENT_DIS
 * `docs/bridgev2-notes.md` — the mautrix framework contracts this bridge relies on, for anyone extending
   it.
 
+## Contributing
+
+`AGENTS.md` is the brief for humans and agents working on this: the commands with their required flags,
+where the measured protocol contracts live, the rules about measuring a protocol fact instead of guessing
+it, and what is deliberately unimplemented so it isn't "discovered" as a bug.
+
 ## Not affiliated with Kakao
 
 KakaoTalk is a trademark of KakaoCorp. This project is not affiliated with, endorsed by, or sponsored by
