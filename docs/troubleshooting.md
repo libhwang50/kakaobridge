@@ -68,6 +68,11 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
   **Open Chat** room's name and picture are not in the chat protocol at all (`docs/protocol-notes.md`
   §7b) and are not fetched yet, and a group whose *members* changed may show a stale title until the
   chat is resynced (`sync-portal` in the room).
+* **A Team Chat's "About team" text is not the room topic** — that text is not in the chat protocol at
+  all, it comes from a second Kakao service (`docs/protocol-notes.md` §7a). If the topic stayed empty,
+  look for `Kakao's team service did not describe this room` in the log: the request was refused and the
+  room was left as it was. `!kakaotalk sync-portal` in the room asks again, which is also how an edit
+  made on the phone is picked up.
 * **A group room has no members' avatars, or two rooms for one chat** — the member list and the chat's
   class both come from separate calls; if one is refused the room is built with what is known. Two rooms
   for one chat is fixed in the connector (it used to key an unidentified chat as a shared room); remove

@@ -26,6 +26,7 @@ package kknet
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	stdliblog "log"
@@ -45,6 +46,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
 
+	"github.com/libhwang50/kakaobridge/kakao"
 	"github.com/libhwang50/kakaobridge/loco"
 )
 
@@ -263,6 +265,19 @@ func (c *Client) chatInfoFor(ctx context.Context, chatID int64) (*bridgev2.ChatI
 				},
 			}
 		}
+		// A Team Chat's intro is not on the LOCO socket at all, so a room that says it has a host is
+		// asked about separately (see kakao.TeamChat).
+		if _, isTeam := rd.summary.TeamHost(); isTeam {
+			team, err := c.rest().TeamChat(ctx, chatID)
+			if err != nil {
+				if !errors.Is(err, kakao.ErrNotTeamChat) {
+					c.login.Log.Warn().Err(err).Int64("chat_id", chatID).
+						Msg("Kakao's team service did not describe this room")
+				}
+			} else {
+				applyTeamInfo(info, team)
+			}
+		}
 	}
 	members := bridgev2.ChatMemberMap{}
 	for _, m := range rd.members {
@@ -294,6 +309,24 @@ func (c *Client) chatInfoFor(ctx context.Context, chatID int64) (*bridgev2.ChatI
 		}
 	}
 	return info, nil
+}
+
+// applyTeamInfo fills in what only the team service knows about a Team Chat: the intro the client
+// calls "About team", which Matrix shows as the room topic, and a name for the case where the chat
+// itself carried no title meta. The chatMeta title wins when both exist, because that is the name the
+// chat list and every other client show.
+func applyTeamInfo(info *bridgev2.ChatInfo, team *kakao.TeamChat) {
+	if team == nil {
+		return
+	}
+	if info.Name == nil && team.Name != "" {
+		name := team.Name
+		info.Name = &name
+	}
+	if team.Description != "" {
+		topic := team.Description
+		info.Topic = &topic
+	}
 }
 
 // groupMeta names a group room and gives it a picture.

@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"maunium.net/go/mautrix/bridgev2"
+
+	"github.com/libhwang50/kakaobridge/kakao"
 	"github.com/libhwang50/kakaobridge/loco"
 )
 
@@ -67,13 +70,40 @@ func TestUnnamedGroupIsTitledByItsMembers(t *testing.T) {
 }
 
 // An open chat room (type OM) carries no title or picture in LOCO, and a room whose only member is the
-// account itself has nothing to compose: naming nothing is the honest answer, and the open-chat REST
-// service is where the phone gets the real one.
+// account itself has nothing to compose: naming nothing is the honest answer. The phone does show a name
+// for such a room, but it reads it from an open-chat service the bridge has not measured yet, so the
+// room is left unnamed rather than given a made-up one.
 func TestGroupWithNothingToSayAboutItselfNamesNothing(t *testing.T) {
 	name, avatar := groupMeta(groupSummary(), groupMembers(groupSelfID, "Me"), groupSelfID)
 	if name != "" || avatar != "" {
 		t.Errorf("name/avatar = %q/%q, want nothing", name, avatar)
 	}
+}
+
+// A Team Chat's intro is not on the LOCO socket, so it arrives from the team service and is put where
+// Matrix shows a room's own description. The name from chatMeta keeps winning when both sources have
+// one; the team answer only fills a gap.
+func TestTeamIntroBecomesTheRoomTopic(t *testing.T) {
+	name := "named by the chat itself"
+	info := &bridgev2.ChatInfo{Name: &name}
+	applyTeamInfo(info, &kakao.TeamChat{Name: "named by the team service", Description: "what this room is for"})
+	if info.Topic == nil || *info.Topic != "what this room is for" {
+		t.Errorf("topic = %v, want the room's own intro", info.Topic)
+	}
+	if info.Name == nil || *info.Name != name {
+		t.Errorf("name = %v, want the chat's own title to win", info.Name)
+	}
+
+	unnamed := &bridgev2.ChatInfo{}
+	applyTeamInfo(unnamed, &kakao.TeamChat{Name: "a team room"})
+	if unnamed.Name == nil || *unnamed.Name != "a team room" {
+		t.Errorf("name = %v, want the team service to fill a room with no title", unnamed.Name)
+	}
+	if unnamed.Topic != nil {
+		t.Errorf("topic = %v, want nothing for a room with no intro", unnamed.Topic)
+	}
+
+	applyTeamInfo(unnamed, nil)
 }
 
 // A room notice replayed from history is not a change happening now; only the live one is worth a

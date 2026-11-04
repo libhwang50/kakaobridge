@@ -154,6 +154,25 @@ So a Regular Chat and a Team Chat are the same wire type; only the type-15 meta 
 the host is `hostId`. There is no separate role list per member in `GETMEM` — its members carry
 `type`/`mt`/`ptp` numbers whose meaning is not established.
 
+**The intro is not on the socket.** A Team Chat can carry a short description (the client calls it
+"About team"), and it is nowhere in LOCO: `CHATINFO`, `ChatOnRoom` and `GETMEM` were read for a room
+whose intro was set, and the text appeared in none of them (`mcMetas` is an empty array there). The
+client asks a second service for it, which its own code names *alcatraz*:
+
+```text
+POST https://talk-pilsner.kakao.com/alcatraz/v1/chat/info   {"chatId":<int64>}
+→ {"chatId":…, "name":…, "description":…, "hostId":…, "status":"ACTIVE", "revision":N,
+   "createdAt":…, "permission":{"INVITE":"STAFF","WRITE":"MEMBER","BOT":"MEMBER"},
+   "staff":[…], "restrictions":[…], "accessibleLogId":…, "warehouseBackupStatus":"OFF", …}
+```
+
+with the same `authorization: <access_token>-<device_uuid>` credential as the media APIs. An edit is
+`POST /alcatraz/v1/chat/update` with `{"chatId":…, "description":…}`, and the client re-reads `chat/info`
+immediately after writing it, which is how both halves were captured. A chat that is not a Team Chat — a
+Regular Chat or an Open Chat room — answers `404` `{"status":404,"code":"90001"}`; that is the test the
+bridge uses rather than guessing. The bridge maps `description` to the Matrix room topic and keeps the
+`chatMetas` title as the room name, because that is the name the chat list shows.
+
 A group created **without** a name has no type-3 meta: the phone titles that case from the member list,
 locally and in the user's language. It is a client string, not a protocol fact, which is why the bridge
 composes its own label rather than quoting one.
@@ -174,8 +193,10 @@ otherwise never reach the bridge live. `loco.ChatIDOfPush` reads the chat from s
 verb abbreviates the key, and says no rather than guessing a room.
 
 The Team Chat management screen offers roles the wire does not show the bridge: invite/remove members,
-manage access, assign or remove an admin, reassign the host. Only `hostId` in the type-15 meta names a
-role, so the bridge has no basis for Matrix power levels beyond that.
+manage access, assign or remove an admin, reassign the host. The team service names the *room's* rules
+(`permission` above) and its admin list (`staff`, empty on a test room with no admins), but it does not
+say which member holds which role, and only `hostId` names a person — so the bridge has no basis for
+Matrix power levels beyond the host.
 
 ### 7b. Open Chat rooms (`OM`)
 
@@ -184,6 +205,21 @@ title, no picture and no member ids: `chatInfo` has `activeMembersCount`, an emp
 fields only these rooms carry (`li`, `otk`), and the `chatDatas` entry has null `i`/`k`. `GETMEM` does
 list the participants. The room's name and thumbnail come from the open-chat service over REST, which
 this bridge does not call — so an Open Chat room bridges as a room with messages and members, unnamed.
+
+What is known about that service, so the next attempt does not start from nothing:
+
+* The room is addressed by its Open Link id — the `li` in `CHATINFO` (the app's own analytics call it
+  `link_id`, alongside `link_name`, `link_description`, `link_type` and `chat_id`, which is where the
+  existence of a name *and* an intro was confirmed for a test room).
+* `open.kakao.com/c/link/settings?linkId=…` answers with the room's categories and join requirements and
+  nothing else; it is what the WebView behind "Manage Open Chat" loads. The rest of that WebView's calls
+  go through the system WebView stack, which the in-process hook used here does not see.
+* `openchat/v1/*` and `openchat-tab/v1/*` are on `talk-pilsner.kakao.com` — `GET
+  /openchat/v1/user/agreements` and `POST /openchat-tab/v1/tab/now` answer normally with the bridge's
+  credential. Room-profile paths tried under `openchat/v1/chats/…` answer `{"status":500}`, which is what
+  that gateway returns for a route it does not have, so the profile path is not one of the guessed names.
+* The room feed itself is restricted for a young account without identity verification (`601`, "content
+  exposure … temporarily restricted"), which limits what a probe of that family can return.
 
 ## 8. Chat logs and attachment JSON
 
