@@ -109,7 +109,7 @@ KakaoTalk은 KakaoCorp의 상표입니다. 이 프로젝트는 카카오와 제�
 ## 생성형 AI 사용 공개
 
 이 프로젝트는 로컬로 호스팅된 Qwen3.8-Flash-Next를 사용하여 개발했습니다.
-해당 README.md 번역본은 로컬로 호스팅된 Gemma 4 24B-A4B를 사용했습니다.
+해당 README.md 번역본은 로컬로 호스팅된 Gemma 4 26B-A4B를 사용했습니다.
 
 ## 라이선스
 
