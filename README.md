@@ -138,6 +138,28 @@ The bridge reports its state to the management room (`CONNECTED`, `TRANSIENT_DIS
 where the measured protocol contracts live, the rules about measuring a protocol fact instead of guessing
 it, and what is deliberately unimplemented so it isn't "discovered" as a bug.
 
+## Related work
+
+These are worth knowing about, whether you are choosing what to run or what to read next. What
+follows is what their repositories said on 2026-11-05; ask them for their current state.
+
+- **[mooo](https://github.com/frrad/mooo)** (MIT) — another mautrix bridgev2 KakaoTalk bridge with
+  its own LOCO implementation and a large body of protocol research written against owned test
+  accounts. It bridges message reactions and replies with attachments, which this bridge does not.
+  This one bridges Kakao's text styles in both directions and names an Open Chat room the account
+  owns, which mooo has not reached yet.
+- **[kakao-beeper](https://github.com/RealLunarProductions/kakao-beeper)** (MIT) — a small bridgev2
+  connector for Beeper that keeps the Kakao session in a Node sidecar built on
+  [agent-messenger](https://github.com/agent-messenger/agent-messenger), for when you would rather
+  the protocol were spoken by a JavaScript client.
+- **[noa](https://github.com/entworacy/noa)** — not a bridge: a service that runs on a rooted
+  Android and hooks the running KakaoTalk app, covering Open Chat management, reactions and voice
+  calls. A different answer to the same protocol, and a good read for what the app itself will do.
+
+Nothing here is copied from them, and no protocol fact in this repository comes from them: what
+[docs/protocol-notes.md](docs/protocol-notes.md) claims was measured with the account and the
+clients described there.
+
 ## Not affiliated with Kakao
 
 KakaoTalk is a trademark of KakaoCorp. This project is not affiliated with, endorsed by, or sponsored by

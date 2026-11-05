@@ -105,6 +105,27 @@ services:
 
 `AGENTS.md`는 이 프로젝트에서 작업하는 사람과 에이전트를 위한 요약 가이드입니다: 필수 플래그를 포함한 명령어, 측정된 프로토콜 계약이 있는 위치, 프로토콜 사실을 추측하는 대신 측정해야 하는 규칙, 그리고 버그로 "발견"되지 않도록 의도적으로 미구현된 기능들이 담겨 있습니다.
 
+## 관련 프로젝트 (Related work)
+
+무엇을 실행할지, 무엇을 먼저 읽을지 고를 때 도움이 됩니다. 아래는 2026-11-05 기준으로 각 저장소에
+적혀 있던 내용이며, 현재 상태는 각 저장소에서 확인해야 합니다.
+
+- **[mooo](https://github.com/frrad/mooo)** (MIT) — mautrix bridgev2 기반의 또 다른 카카오톡 브릿지.
+  자체 LOCO 구현과, 본인 계정으로 수집한 근거 위에 쓰인 방대한 프로토콜 문서를 갖추고 있습니다.
+  이 브릿지가 아직 지원하지 않는 메시지 리액션과 첨부된 답글을 처리합니다. 반대로 이 브릿지는
+  카카오의 글자 장식을 양방향으로 처리하고 본인 계정이 만든 오픈채팅방의 이름을 붙입니다 —
+  mooo는 아직 그것을 다루지 않습니다.
+- **[kakao-beeper](https://github.com/RealLunarProductions/kakao-beeper)** (MIT) — Beeper를 위한 mautrix bridgev2
+  커넥터로, 카카오톡 세션을
+  [agent-messenger](https://github.com/agent-messenger/agent-messenger) 위에 만든 Node 사이드카에
+  맡깁니다. 프로토콜을 JavaScript 클라이언트가 담당하게 하고 싶을 때 적합합니다.
+- **[noa](https://github.com/entworacy/noa)** — 브릿지가 아닙니다. 루팅된 Android에서 실행되며 실행 중인
+  카카오톡 앱을 후킹해 오픈채팅 관리, 리액션, 음성 통화까지 다룹니다. 같은 프로토콜에 대한 다른
+  답이며, 앱 자체가 무엇을 하는지 아는 데 좋은 자료입니다.
+
+여기에 있는 코드는 여기서 가져온 것이 없고, 이 저장소의 프로토콜 사실 역시 여기서 온 것이 아닙니다.
+`docs/protocol-notes.md`에 적힌 내용은 그 문서에 쓰인 계정과 클라이언트로 측정한 것입니다.
+
 ## 카카오와 관련이 없습니다 (Not affiliated with Kakao)
 
 KakaoTalk은 KakaoCorp의 상표입니다. 이 프로젝트는 카카오와 제휴하거나, 보증받거나, 후원을 받는 것이 아닙니다.
