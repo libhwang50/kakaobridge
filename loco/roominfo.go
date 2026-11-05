@@ -439,6 +439,37 @@ func ParseGetMemResponse(body []byte) ([]Member, error) {
 	return out, nil
 }
 
+// ParseMemberResponse reads what MEMBER answers: profiles for the user ids a chat was asked about.
+// GETMEM lists a room, MEMBER answers for named people, which is how a person the bridge has no profile
+// for gets a name.
+//
+// The answer is about a room, not about a person, and that matters. In an ordinary chat it spells the
+// fields out (`nickName`, `profileImageUrl`, `fullProfileImageUrl`, `originalProfileImageUrl`); in an Open
+// Chat room the same user id answers with the open profile that room shows, under the short keys:
+//
+//	{"userId":1,"nickName":"an open name",
+//	 "pi":"…/img_s.jpg","fpi":"…/img_l.jpg","opi":"…/img.jpg","mt":1,"ptp":16}
+//
+// The same account answered "a real name" in a group chat and "an open name" with open.kakaocdn.net
+// pictures in an Open Chat room. Members come back in no particular order, so a caller must key them by
+// user id; empty image fields mean the default avatar, not a failed lookup.
+func ParseMemberResponse(body []byte) ([]Member, error) {
+	if inner := InnerStatus(body); inner != 0 {
+		return nil, fmt.Errorf("loco: MEMBER inner status %d", inner)
+	}
+	elems, _, err := DecodeDoc(body, 0)
+	if err != nil {
+		return nil, fmt.Errorf("loco: decoding MEMBER response: %w", err)
+	}
+	var out []Member
+	for _, e := range arrayElems(Get(elems, "members")) {
+		if doc, ok := e.Val.([]Elem); ok {
+			out = append(out, memberOf(doc))
+		}
+	}
+	return out, nil
+}
+
 func ParseChatInfoResponse(body []byte) (*ChatSummary, error) {
 	if inner := InnerStatus(body); inner != 0 {
 		return nil, fmt.Errorf("loco: CHATINFO inner status %d", inner)

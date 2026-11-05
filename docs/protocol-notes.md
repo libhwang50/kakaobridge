@@ -138,6 +138,26 @@ group.
   per-message receipt, so the bridge maps it onto the nearest older bridged message
   (`docs/bridgev2-notes.md`).
 
+**`MEMBER` asks who specific people are in one chat**: `chatId` plus `memberIds`, answered with a
+`members` list in no particular order. `GETMEM` lists a room; this names people, which is how the bridge
+gives a name to someone a room's list did not carry — a large public Open Chat room sends only part of its
+list (measured: 1000 of 1976) and the bridge refuses to pass a part off as the whole.
+
+The answer is about the room rather than about the person, and that is the part worth knowing. The same
+user id answers with its main profile in a group chat (`nickName`, `profileImageUrl`,
+`fullProfileImageUrl`, `originalProfileImageUrl`, `statusMessage`, `suspended`, `memorial`), and with its
+**open profile** in an Open Chat room:
+
+```text
+{"userId":…,"nickName":"an open name",
+ "pi":"…/img_s.jpg","fpi":"…/img_l.jpg","opi":"…/img.jpg","mt":1,"ptp":16}
+```
+
+so asking about a room is the only way to get the profile that room shows. The bridge asks last — after
+the room's own member list and after the friend list — so a real name still wins over what a room chose to
+display, and it remembers which room a person's message came from so it knows what to ask. A person using
+the default avatar answers with empty image fields, which is not a failed lookup.
+
 ### 7a. Group chats (`MultiChat`)
 
 Measured on a Regular Chat and a Team Chat created for the purpose (`cmd/locoprobe` with the bridge's
@@ -240,11 +260,12 @@ Two things matter when using that answer:
   `li` is the one the chat named.
 * Open Chat participants appear under an **open profile**, not the account's main profile: `olu` is a
   separate nickname and image set, kept precisely because main profiles carry real names. The bridge reads
-  participants from `GETMEM` (§7a), which reports those open profiles; a main profile never appears in an
-  Open Chat room. The bridge keeps one ghost per Kakao account, so a person who appears in both a friend
-  chat and an Open Chat room is one Matrix user showing whichever of the two profiles was read last.
-  Kakao separates those identities per room; the bridge cannot, and says so rather than pretending
-  otherwise.
+  participants from `GETMEM` (§7a), which reports those open profiles, and asks `MEMBER` about anyone that
+  list did not carry — in that room, so the answer is the open profile this room shows. A main profile
+  never appears in an Open Chat room. The bridge keeps one ghost per Kakao account, so a person who appears
+  in both a friend chat and an Open Chat room is one Matrix user showing whichever of the two profiles was
+  read last. Kakao separates those identities per room; the bridge cannot, and says so rather than
+  pretending otherwise.
 * `SYNCLINK` is the read path for the account's own links — the rooms it created and the ones it joined.
   It was measured on a room this account created; whether a room merely joined appears in the same list
   was not measured. Either way the failure mode is safe: no matching entry means the bridge leaves the

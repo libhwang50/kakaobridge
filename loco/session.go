@@ -451,6 +451,20 @@ func (s *Session) GetMem(chatID int64) (Frame, error) {
 	return s.Request("GETMEM", body, 8*time.Second)
 }
 
+// Member asks who a list of user ids is in one chat. Kakao answers per room, so in an Open Chat room the
+// answer is the open profile that room shows rather than the person's main profile (see
+// ParseMemberResponse). A room the credential is not a member of answers with an inner error.
+func (s *Session) Member(chatID int64, userIDs []int64) (Frame, error) {
+	if len(userIDs) == 0 {
+		return Frame{}, fmt.Errorf("loco: MEMBER asked for no one")
+	}
+	body := EncodeDoc([]Elem{
+		{Key: "chatId", Type: tInt64, Val: chatID},
+		{Key: "memberIds", Type: tArr, Val: Array(toI64(userIDs)...)},
+	})
+	return s.Request("MEMBER", body, 8*time.Second)
+}
+
 // SyncLink asks for every Open Link this account has: the Open Chat rooms it joined or created, and
 // its own open profile. The server does not filter by link id, so the caller picks the entry it wants
 // (see ParseSyncLinkResponse).

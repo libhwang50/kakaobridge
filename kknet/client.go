@@ -46,7 +46,10 @@ type Client struct {
 	pumpStop   context.CancelFunc
 	rooms      map[int64]*roomData
 	users      map[int64]loco.Member
-	seenChats  map[int64]string // chatId -> chat type, from LOGINLIST
+	// seenIn remembers a chat where each person's message appeared. Kakao answers a profile request about
+	// a room, so the room a person spoke in is the right place to ask about them.
+	seenIn    map[int64]int64
+	seenChats map[int64]string // chatId -> chat type, from LOGINLIST
 	// links maps an Open Link id to the chat that uses it. Only rooms whose CHATINFO has been read are
 	// in here, which is what lets a SYNCLINKUP push find the room it describes.
 	links map[int64]int64
@@ -70,6 +73,7 @@ func NewClient(c *Connector, login *bridgev2.UserLogin, meta *LoginMeta) *Client
 		auth:      meta.DeviceAuth(&c.cfg),
 		rooms:     map[int64]*roomData{},
 		users:     map[int64]loco.Member{},
+		seenIn:    map[int64]int64{},
 		seenChats: map[int64]string{},
 		links:     map[int64]int64{},
 		bridged:   map[int64][]int64{},
@@ -216,6 +220,7 @@ func (c *Client) Disconnect() {
 	c.loggedIn = false
 	c.rooms = map[int64]*roomData{}
 	c.users = map[int64]loco.Member{}
+	c.seenIn = map[int64]int64{}
 	c.seenChats = map[int64]string{}
 	c.links = map[int64]int64{}
 	c.mu.Unlock()
@@ -313,7 +318,8 @@ func chatIDOf(key networkid.PortalKey) (int64, error) {
 }
 
 // GetUserInfo fills in a ghost's name and avatar. Names come from room member lists (Kakao sends
-// profiles per room); the friend list is the fallback for a person who is not in any bridged room.
+// profiles per room); the friend list is the fallback for a person who is not in any bridged room, and
+// last the bridge asks Kakao about the person in a room where they have spoken (lookupStranger).
 func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
 	uid, err := strconv.ParseInt(string(ghost.ID), 10, 64)
 	if err != nil {
@@ -348,7 +354,55 @@ func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridg
 			return userInfoOf(mm), nil
 		}
 	}
+	if m := c.lookupStranger(ctx, uid); m != nil {
+		return userInfoOf(*m), nil
+	}
 	return nil, fmt.Errorf("kknet: Kakao has no profile for user %d", uid)
+}
+
+// lookupStranger asks Kakao who a person is in a chat this account is in. A member of a large public
+// Open Chat room is neither a friend nor in the member list the bridge carries - Kakao sends only part of
+// a list that big (measured: 1000 of 1976) and the bridge refuses to pass a part off as a whole - so
+// without this the ghost stays anonymous and the timeline shows a bare id. The chat asked about is one
+// where that person's message appeared, because Kakao answers about a room: in an Open Chat room the
+// answer is the open profile that room shows, not the person's main profile.
+//
+// It is tried last, after the room's own member list and after the friend list, so a real name wins over
+// whatever a room chose to display. The answer is kept for the session; it is dropped with the rest of the
+// connection's caches, which is also how a renamed person is picked up again.
+func (c *Client) lookupStranger(ctx context.Context, userID int64) *loco.Member {
+	c.mu.Lock()
+	chatID := c.seenIn[userID]
+	sess := c.sess
+	c.mu.Unlock()
+	if chatID == 0 || sess == nil || ctx.Err() != nil {
+		return nil
+	}
+	f, err := sess.Member(chatID, []int64{userID})
+	if err != nil {
+		c.login.Log.Debug().Int64("chat_id", chatID).Int64("user_id", userID).
+			Err(err).Msg("Asking Kakao about a member the room's list did not carry failed")
+		return nil
+	}
+	members, err := loco.ParseMemberResponse(f.Body)
+	if err != nil {
+		c.login.Log.Debug().Int64("chat_id", chatID).Int64("user_id", userID).
+			Err(err).Msg("Kakao answered a member lookup in a shape the bridge does not know")
+		return nil
+	}
+	for _, m := range members {
+		if m.UserID != userID {
+			continue
+		}
+		c.login.Log.Debug().Int64("chat_id", chatID).Int64("user_id", userID).
+			Str("name", preview(m.Nickname, 40)).Bool("has_avatar", m.ProfileImageURL != "").
+			Msg("Named a member the room's member list did not carry")
+		c.mu.Lock()
+		c.users[userID] = m
+		c.mu.Unlock()
+		return &m
+	}
+	return nil
 }
 
 // GetCapabilities says what may be sent into a Kakao chat. It is static because Kakao does not vary

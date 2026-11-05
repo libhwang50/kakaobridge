@@ -852,6 +852,9 @@ func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
 	if chatType == "" {
 		chatType = c.chatTypeFor(ctx, cl.ChatID)
 	}
+	// Where a message came from is where that person's profile should be asked for, because Kakao answers
+	// a member lookup about a room.
+	c.noteSeen(cl.ChatID, cl.AuthorID)
 
 	// Any type that is not text, not media and not a known channel card is recorded rather than silently
 	// turned into a placeholder: that is how the type table gets completed instead of guessed.
@@ -889,6 +892,21 @@ func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
 		c.rememberBridged(cl.ChatID, cl.LogID)
 	}
 	return res.Error
+}
+
+// noteSeen records a chat where a person's message appeared, so a later profile lookup can ask about them
+// in that room. A profile is answered per room on purpose: an Open Chat room shows an open profile, and a
+// group chat shows the real one.
+func (c *Client) noteSeen(chatID, userID int64) {
+	if userID == 0 || userID == c.meta.UserID {
+		return
+	}
+	c.mu.Lock()
+	if c.seenIn == nil {
+		c.seenIn = map[int64]int64{}
+	}
+	c.seenIn[userID] = chatID
+	c.mu.Unlock()
 }
 
 // handleEditedMessage bridges Kakao's edit push. The push carries the whole edited log, so nothing has to
