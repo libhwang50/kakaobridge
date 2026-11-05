@@ -19,6 +19,14 @@ import (
 //	                                                                  they were removed
 //	{"feedType":4,"members":[…]}                                      a member arrived (open chat room)
 //	{"feedType":18,"eventType":1,"eventUser":{…}}                     a team-chat event
+//	{"feedType":14,"logId":…, "hidden":true}                           a message was deleted
+//	{"feedType":25,"logId":…,"targetRevision":1,"hidden":true}       a message was edited
+//
+// The last two name a message rather than a person: logId is the log the notice is about, and
+// targetRevision counts the edit it announces (measured 1 for the first edit of a message). A delete also
+// leaves its mark on the message itself (see MsgDeletedBit). Neither notice reaches a listening session
+// as a push of its own: an edit arrived as SYNCMODMSG carrying the new text, and a delete arrived as
+// nothing at all, so both are followed from history rather than live.
 //
 // The invitation and the arrival say the same thing in different shapes, and the team event says
 // something we have not identified. What is certain is that the member list changed, or that the room
@@ -36,6 +44,10 @@ type FeedMeta struct {
 	Member *FeedUser `json:"member"`
 	Kicked *bool     `json:"kicked"`
 	Hidden *bool     `json:"hidden"`
+	// LogID names the message a notice is about (feedType 14 and 25); TargetRevision is the edit count
+	// that notice announces. Zero for the membership notices, which name people instead.
+	LogID          int64 `json:"logId"`
+	TargetRevision int   `json:"targetRevision"`
 }
 
 // FeedUser is one person named by a feed message. The nickname is the room-visible one, which is not

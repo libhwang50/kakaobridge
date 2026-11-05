@@ -270,6 +270,73 @@ attachment is a JSON blob whose keys are abbreviations (`rsc`, `hfac`, `cs`, `na
 * the numeric `attachType` values are what the client uses to choose a renderer; `attach.go` maps the
   ones this bridge converts and refuses the rest rather than guessing.
 
+### 8a. Editing, deleting, quoting and styling a message
+
+All four were measured on the bridge's own device, with a second LOCO session listening while the change
+was made in the app (a self-memo chat and an Open Chat room the bridge owns). The ids below are synthetic;
+the shapes are not.
+
+**An edit keeps the message.** The edited log keeps its `logId` and its `revision` counts the edits
+(`0` → `1` for the first one). Afterwards `MCHATLOGS` serves the new text and nothing else: the message was
+edited in place, not replaced. The live push is `SYNCMODMSG`:
+
+| key | meaning |
+|---|---|
+| `chatId`, `logId` | the chat, and the id of the notice in `chatLog` |
+| `chatLog` | a `type: 0` notice: `{"logId":<edited>,"targetRevision":1,"hidden":true,"feedType":25}` |
+| `modifiedChatLog` | the whole edited log: same `logId`, the new `message`, `revision: 1` |
+| `noSeen`, `status` | as elsewhere |
+
+The push carries the new text, so nothing has to be read again: the bridge edits the Matrix message it
+already sent (`kknet/pump.go`, `handleEditedMessage`). Editing *from* Matrix is not implemented — no verb
+for it has been measured.
+
+**A delete keeps the log and sets a bit.** "Delete for Everyone" leaves the chat log, its `logId` and its
+text where they are, and sets `0x4000` on the type (measured: a text message, type `1`, came back as
+`16385`). Its attachment gains `{"lastFeedId":<the notice>}` and the chat gains a `type: 0` notice saying
+`{"feedType":14,"logId":<that log>,"hidden":true}`. A listening session saw **no push at all** for the
+delete, which is why the bridge applies the redaction when it reads that chat's history again rather than
+as it happens. No type this bridge has measured reaches `0x4000` (the largest is 101), so `chatLogOf` reads
+the bit as a flag and strips it: a deleted photo is still described as a photo.
+
+"Delete only for me" leaves no trace in the history at all — the log is served unchanged and hidden per
+account. Nothing here can see that, so the bridge does not guess at it. (The self-memo chat offers only
+that one delete, which is how this was found.)
+
+**A reply is a message that points at another message** (`type: 26`, `MsgReply`). Its text holds only what
+the person typed; the quoted message is entirely in the attachment, and the client draws the quoted bubble
+from it:
+
+```json
+{"src_userId":100000001,"src_logId":3965989223323015169,"src_type":1,
+ "src_message":"images and video can be sent","src_spoilers":[]}
+```
+
+`src_logId` is the same id the bridge already uses as a Matrix message id, so a Kakao reply becomes
+`m.in_reply_to` with nothing invented. `src_type` is the type of the quoted message, which need not be
+a text message.
+
+**Styles are ranges beside the plain text.** A styled message still has plain `message` text; the styles
+travel next to it, in the attachment:
+
+```json
+{"richText":{"bold":[[19,10]],"strike":[[43,15]]}}
+{"spoilers":[{"loc":59,"len":8}]}
+{"richText":{"italic":[[0,12]]}}
+```
+
+A range is `[start, length]`; the client's own model (`com.kakao.talk.chat.richtext.RichTextRange`) calls
+the two numbers `loc` and `length`. Sent with the text `Rich text testing. Bold text. Italic text.
+Strikethrough.  Spoiler.`, those offsets select exactly `Bold text.`, `Strikethrough. ` (the client strikes
+the space after the period too) and `Spoiler.`. Those samples are ASCII, so they do not say whether an index
+counts bytes, characters, or UTF-16 code units; the client is a JVM app and its text APIs count UTF-16,
+which is what `kknet/format.go` assumes, and a range that does not fit the text is dropped rather than
+moved. The app's own model names further styles (`underline`, `highlight`, `color`, `subText`, `linkText`);
+none of those has been seen on the wire, so none of them is read.
+
+**In the app, not yet on the wire here.** In an Open Chat room the message menu also offers reactions and
+"Reply in thread". Neither has been captured on the wire by this bridge, so neither is bridged.
+
 ## 9. Sending: `WRITE` and `WRITEMEDIA`
 
 `loco/session.go`.

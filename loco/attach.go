@@ -277,3 +277,114 @@ func baseName(s string) string {
 
 // ErrNoAttachment is returned by callers that need media but got a chat log without usable media.
 var ErrNoAttachment = fmt.Errorf("loco: message has no downloadable attachment")
+
+// attachmentOf decodes a chat log's `attachment` into v. The field is a JSON string on the wire, and it
+// is "{}" for a plain message. Every shape of attachment this package reads - media, quoted replies,
+// styles - goes through here.
+func attachmentOf(cl ChatLog, v any) bool {
+	raw, ok := cl.Attachment.(string)
+	if !ok || raw == "" || raw == "{}" {
+		return false
+	}
+	return json.Unmarshal([]byte(raw), v) == nil
+}
+
+// ReplyMeta is the attachment of a quoted reply (type 26, MsgReply). Measured on a reply in the
+// self-chat, whose own text was only "Reply to the message above":
+//
+//	{"src_userId":447137810,"src_logId":3965989223323015169,"src_type":1,
+//	 "src_message":"^ 이미지, 영상 전송 가능","src_spoilers":[]}
+//
+// Nothing in the message text refers to the quote: the client draws the quoted bubble from these fields
+// alone. src_logId is the same log id the bridge already uses as its Matrix message id, so a Kakao reply
+// has a direct Matrix equivalent. src_type is the type of the quoted message, which need not be text.
+type ReplyMeta struct {
+	UserID int64  `json:"src_userId"`
+	LogID  int64  `json:"src_logId"`
+	Type   int32  `json:"src_type"`
+	Text   string `json:"src_message"`
+}
+
+// ReplyMetaOf reads what a reply quotes. It says false for anything that is not a reply, and for a reply
+// with no source id, where there would be nothing to point at.
+func ReplyMetaOf(cl ChatLog) (*ReplyMeta, bool) {
+	var meta ReplyMeta
+	if !attachmentOf(cl, &meta) || meta.LogID == 0 {
+		return nil, false
+	}
+	return &meta, true
+}
+
+// StyleRange is one span of a message carrying a style. On the wire it is a pair: "bold":[[19,10]] means
+// ten characters starting at index 19. The client's own model (com.kakao.talk.chat.richtext.RichTextRange)
+// calls the two numbers loc and length.
+//
+// Measured on the self-chat, against the text
+// "Rich text testing. Bold text. Italic text. Strikethrough.  Spoiler.":
+//
+//	{"richText":{"bold":[[19,10]],"strike":[[43,15]]}}
+//	{"spoilers":[{"loc":59,"len":8}]}
+//	{"richText":{"italic":[[0,12]]}}
+//
+// Those offsets land exactly on "Bold text.", on "Strikethrough." plus the space after it, and on
+// "Spoiler.". The samples are ASCII, so they cannot say whether an index counts bytes, characters or
+// UTF-16 code units; the client is a JVM app whose text APIs count UTF-16, so that is what the bridge
+// assumes, and a range that does not fit the text is dropped rather than guessed at.
+type StyleRange struct {
+	Loc    int
+	Length int
+}
+
+func (r *StyleRange) UnmarshalJSON(data []byte) error {
+	var pair []int
+	if err := json.Unmarshal(data, &pair); err != nil {
+		return fmt.Errorf("loco: style range is not a [loc, length] pair: %w", err)
+	}
+	if len(pair) != 2 {
+		return fmt.Errorf("loco: style range %s is not a [loc, length] pair", data)
+	}
+	r.Loc, r.Length = pair[0], pair[1]
+	return nil
+}
+
+// RichText holds the styles Kakao keeps beside a message's text. It reads only what has been seen on the
+// wire. The app's own model names more (underline, highlight, color, subText, linkText); none of those
+// has been observed, and a style nobody has measured is better left out than invented.
+type RichText struct {
+	Bold     []StyleRange
+	Italic   []StyleRange
+	Strike   []StyleRange
+	Spoilers []StyleRange
+}
+
+// RichTextOf reads the styles of a message. It says false when there are none, which is every message
+// without a richText or spoilers object.
+func RichTextOf(cl ChatLog) (*RichText, bool) {
+	var doc struct {
+		RichText struct {
+			Bold   []StyleRange `json:"bold"`
+			Italic []StyleRange `json:"italic"`
+			Strike []StyleRange `json:"strike"`
+		} `json:"richText"`
+		Spoilers []struct {
+			Loc    int `json:"loc"`
+			Length int `json:"len"`
+		} `json:"spoilers"`
+	}
+	if !attachmentOf(cl, &doc) {
+		return nil, false
+	}
+	rt := &RichText{Bold: doc.RichText.Bold, Italic: doc.RichText.Italic, Strike: doc.RichText.Strike}
+	for _, s := range doc.Spoilers {
+		rt.Spoilers = append(rt.Spoilers, StyleRange{Loc: s.Loc, Length: s.Length})
+	}
+	if !rt.Any() {
+		return nil, false
+	}
+	return rt, true
+}
+
+// Any says whether there is a style to draw at all.
+func (rt *RichText) Any() bool {
+	return rt != nil && len(rt.Bold)+len(rt.Italic)+len(rt.Strike)+len(rt.Spoilers) > 0
+}

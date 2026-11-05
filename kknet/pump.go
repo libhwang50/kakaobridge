@@ -18,6 +18,8 @@ package kknet
 //	             messages exist (LOGINLIST previews and CHATINFO.lastChatLog both show them), this
 //	             verb just does not serve them.
 //	MSG/WRITE/...  pushes: the same chatLog documents, live.
+//	SYNCMODMSG     a message was edited: the push carries the whole new log, with the same logId and a
+//	             revision that counted the edits (loco.ParseModifiedChatLog).
 //
 // So a room appears in Matrix when the bridge sees it in LOGINLIST, or when a chat resync/message
 // event arrives for it. Nothing here pretends to know chats the server has not named; that gap is
@@ -688,6 +690,9 @@ func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Fram
 	case "SYNCLINKUP":
 		// The name, intro or picture of an Open Chat room changed. The push carries the whole link.
 		c.handleLinkUpdate(ctx, log, f)
+	case "SYNCMODMSG":
+		// Someone edited a message. The push carries the whole edited log, so nothing has to be read again.
+		c.handleEditedMessage(ctx, log, f)
 	case "KICKOUT":
 		// Another connection used this device id - typically one of our own probe tools sharing a
 		// credential. The pump ends and reconnects; the other side is not a Kakao user we can do
@@ -785,6 +790,19 @@ func (c *Client) roomEvent(ctx context.Context, cl loco.ChatLog) {
 			Msg("Kakao sent a room event the bridge could not read")
 		return
 	}
+	switch feed.FeedType {
+	case 14:
+		// A message was deleted. Nothing about the room changed, so there is no reason to read it again,
+		// and the message itself arrives in the same history with its delete bit set - that is the path
+		// which redacts it (see queueChatLog).
+		log.Msg("Kakao says a message was deleted; the message itself carries that")
+		return
+	case 25:
+		// A message was edited. This notice only announces it; the new text arrives with the SYNCMODMSG
+		// push, or in the history this notice comes from.
+		log.Msg("Kakao says a message was edited; the new text comes by itself")
+		return
+	}
 	// A zerolog Event is written once: this path decides what to say and then says it, because emitting a
 	// second time on the same Event panics the process (that is how a room notice took the bridge down).
 	msg := "Kakao reports a change to a room; refreshing it instead of bridging the notice"
@@ -817,7 +835,10 @@ func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
 		return nil
 	}
 	if cl.Deleted {
-		return nil
+		// Kakao kept this log and marked it deleted (see loco.MsgDeletedBit): redact the Matrix message
+		// rather than leaving one that Kakao no longer shows. A listening session sees no push for a delete
+		// (measured), so reading the history again is how the bridge learns about one.
+		return c.queueChatRedaction(ctx, cl.ChatID, cl.LogID, cl.AuthorID)
 	}
 	if cl.Type == loco.MsgFeed {
 		// An event about the room, not something typed in it: follow the change instead of inventing a
@@ -834,7 +855,8 @@ func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
 
 	// Any type that is not text, not media and not a known channel card is recorded rather than silently
 	// turned into a placeholder: that is how the type table gets completed instead of guessed.
-	if cl.Type != loco.MsgText && !loco.IsMediaMessageType(cl.Type) && !loco.IsChannelMessageType(cl.Type) {
+	if cl.Type != loco.MsgText && cl.Type != loco.MsgReply &&
+		!loco.IsMediaMessageType(cl.Type) && !loco.IsChannelMessageType(cl.Type) {
 		c.login.Log.Debug().Int64("chat_id", cl.ChatID).Int64("log_id", cl.LogID).
 			Int64("kakao_type", int64(cl.Type)).Str("kakao_type_name", loco.MessageTypeName(cl.Type)).
 			Str("text", preview(cl.Text, 80)).Str("attachment", preview(fmt.Sprintf("%v", cl.Attachment), 400)).
@@ -865,6 +887,86 @@ func (c *Client) queueChatLog(ctx context.Context, cl loco.ChatLog) error {
 	})
 	if res.Error == nil {
 		c.rememberBridged(cl.ChatID, cl.LogID)
+	}
+	return res.Error
+}
+
+// handleEditedMessage bridges Kakao's edit push. The push carries the whole edited log, so nothing has to
+// be read again: the edited message has the same logId the bridge already used as its Matrix message id,
+// and bridgev2 turns the new text into an edit of that message. An edit of something this bridge never
+// bridged is left alone - there is nothing to edit, and sending the text now would put an old message in
+// the timeline out of order.
+func (c *Client) handleEditedMessage(ctx context.Context, log zerolog.Logger, f loco.Frame) {
+	edited, _, err := loco.ParseModifiedChatLog(f.Body)
+	if err != nil {
+		log.Debug().Err(err).Str("cmd", f.Cmd).Msg("Could not parse Kakao's edit")
+		return
+	}
+	if edited.ChatID == 0 || edited.LogID == 0 {
+		return
+	}
+	id := networkid.MessageID(strconv.FormatInt(edited.LogID, 10))
+	res := c.login.Bridge.QueueRemoteEvent(c.login, &simplevent.Message[loco.ChatLog]{
+		EventMeta: simplevent.EventMeta{
+			Type:        bridgev2.RemoteEventEdit,
+			PortalKey:   c.portalKeyFor(edited.ChatID, c.chatTypeFor(ctx, edited.ChatID)),
+			Sender:      c.senderOf(edited.AuthorID),
+			Timestamp:   time.Unix(edited.SendAt, 0),
+			StreamOrder: edited.LogID,
+			LogContext: func(cc zerolog.Context) zerolog.Context {
+				return cc.Int64("chat_id", edited.ChatID).Int64("log_id", edited.LogID).
+					Int("revision", int(edited.Revision))
+			},
+		},
+		ID:            id,
+		TargetMessage: id,
+		Data:          edited,
+		ConvertEditFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI,
+			existing []*database.Message, data loco.ChatLog) (*bridgev2.ConvertedEdit, error) {
+			if len(existing) == 0 {
+				return nil, bridgev2.ErrIgnoringRemoteEvent
+			}
+			return &bridgev2.ConvertedEdit{ModifiedParts: []*bridgev2.ConvertedEditPart{{
+				Part:    existing[0],
+				Type:    event.EventMessage,
+				Content: convertedContentOf(data),
+			}}}, nil
+		},
+	})
+	if res.Error != nil {
+		log.Debug().Err(res.Error).Int64("chat_id", edited.ChatID).Int64("log_id", edited.LogID).
+			Msg("Could not bridge a Kakao edit")
+	}
+}
+
+// queueChatRedaction takes a Matrix message out because Kakao deleted its Kakao one. Kakao does not say
+// who deleted it - the log keeps its original authorId and the room notice names no person - so the
+// redaction is sent as the person who wrote the message, which is what deleting your own message is.
+func (c *Client) queueChatRedaction(ctx context.Context, chatID, logID, authorID int64) error {
+	c.mu.Lock()
+	chatType := c.seenChats[chatID]
+	c.mu.Unlock()
+	if chatType == "" {
+		chatType = c.chatTypeFor(ctx, chatID)
+	}
+	res := c.login.Bridge.QueueRemoteEvent(c.login, &simplevent.MessageRemove{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventMessageRemove,
+			PortalKey: c.portalKeyFor(chatID, chatType),
+			Sender:    c.senderOf(authorID),
+			LogContext: func(cc zerolog.Context) zerolog.Context {
+				return cc.Int64("chat_id", chatID).Int64("log_id", logID)
+			},
+		},
+		TargetMessage: networkid.MessageID(strconv.FormatInt(logID, 10)),
+		// Kakao leaves nothing in the room where the message was - only the chat-list preview says it was
+		// deleted - so the bridge should not leave a note in Matrix either.
+		HidePlaceholder: true,
+	})
+	if res.Error == nil {
+		// A redacted message cannot carry a read receipt, and bridgev2 has dropped its own row for it, so
+		// stop offering it as a receipt target.
+		c.forgetBridged(chatID, logID)
 	}
 	return res.Error
 }
@@ -900,6 +1002,18 @@ func (c *Client) rememberBridged(chatID, logID int64) {
 		fresh = append(fresh, list[:i]...)
 		fresh = append(fresh, logID)
 		c.bridged[chatID] = append(fresh, list[i:]...)
+	}
+}
+
+// forgetBridged drops a message from the read-marker index, which is what a redaction asks for: a message
+// that is gone cannot be read up to.
+func (c *Client) forgetBridged(chatID, logID int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	list := c.bridged[chatID]
+	i := sort.Search(len(list), func(i int) bool { return list[i] >= logID })
+	if i < len(list) && list[i] == logID {
+		c.bridged[chatID] = append(list[:i], list[i+1:]...)
 	}
 }
 
@@ -1005,7 +1119,15 @@ func convertedContentOf(cl loco.ChatLog) *event.MessageEventContent {
 		return channelContentOf(cl)
 	}
 	content := &event.MessageEventContent{MsgType: event.MsgText, Body: cl.Text}
-	if cl.Type == loco.MsgText {
+	if cl.Type == loco.MsgText || cl.Type == loco.MsgReply {
+		// Kakao keeps a styled message's text plain and puts the styles beside it as ranges; Matrix wants
+		// one HTML body, so the two are combined here. A message without styles stays plain text.
+		if rt, ok := loco.RichTextOf(cl); ok {
+			if html := styledHTML(cl.Text, rt); html != "" {
+				content.Format = "org.matrix.custom.html"
+				content.FormattedBody = html
+			}
+		}
 		return content
 	}
 	content.MsgType = event.MsgNotice

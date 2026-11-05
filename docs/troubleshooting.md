@@ -90,6 +90,19 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
   list is full, so bridgev2 turns the difference into joins and leaves). If the room did not change,
   look for `Kakao reports a change to a room` in the log and the `feed_type` it names — an unrecognised
   notice is logged rather than guessed. `!kakaotalk sync-portal` in the room forces the re-read.
+* **A Kakao message was edited and Matrix still shows the old text** — an edit arrives as its own push
+  carrying the whole new text, and the bridge turns it into an edit of the same Matrix message
+  (`docs/protocol-notes.md` §8a). It reaches Matrix only if the bridge was connected when the edit was made;
+  an edit made while it was away is not applied afterwards, because the history read carries the new text
+  but no signal that something already bridged has changed.
+* **A message was deleted in Kakao and is still in Matrix** — Kakao sends nothing when a message is
+  deleted (measured on a listening session), so the bridge applies the delete the next time it reads that
+  chat's history. "Delete only for me" is not bridged at all: it leaves no trace in what the server sends.
+* **A reply arrived as a plain message** — a Kakao reply is a pointer at the message it quotes, not quoted
+  text. If that message was never bridged (older than the bridged history), Matrix has nothing to point at.
+* **A styled message arrived plain** — bold, italic, strikethrough and spoilers are ranges kept beside the
+  text (§8a). A range that does not fit the text is dropped rather than moved, and a style the bridge has
+  not measured on the wire (underline, highlight, colour) is not read yet. Styles are not sent to Kakao.
 * **No space, just rooms** — `bridge.personal_filtering_spaces: true`.
 * **A friend's room has no avatar** — a Kakao account with the default avatar has no profile image URL.
   That is not a failed fetch.

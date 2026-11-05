@@ -250,7 +250,14 @@ type ChatLog struct {
 	Text     string // the `message` field: body for text, alt/description for other types
 	MsgID    int64  // client-assigned id (echoed back in WRITE acks)
 	PrevID   int64  // previous log in the chat; not a paging cursor (see ParseChatLogs)
-	Deleted  bool
+	// Revision counts edits of this message: measured 0 for a new message and 1 after one edit, with the
+	// same logId and the new text in place of the old. Kakao edits a message rather than replacing it.
+	Revision int32
+	// Deleted says Kakao no longer shows this message. It is set from a `deleted` field when one is
+	// present, and from the 0x4000 type bit (see MsgDeletedBit), which is what "Delete for Everyone"
+	// actually does. A message deleted only for one member stays in history with no marker at all: it is
+	// hidden per account, and nothing here can see that.
+	Deleted bool
 	// Attachment is the raw `attachment` element: a BSON doc with media meta for photo/file/video,
 	// "{}" for plain text, and a list for plus cards. Kept raw on purpose: the media pipeline wants
 	// the original fields, and guessing here would lose them.
@@ -288,12 +295,50 @@ func ParseChatLogs(body []byte) (logs []ChatLog, eof bool, err error) {
 	return logs, eof, nil
 }
 
+// MsgDeletedBit is not a message type. Kakao's "Delete for Everyone" leaves the log in the chat with its
+// logId and its text, and sets this bit on top of the original type: measured, a text message (type 1)
+// came back as 16385 = 0x4001. Its attachment gains {"lastFeedId":<the notice below>}, and the chat
+// gains a type-0 notice saying {"feedType":14,"logId":<this log>,"hidden":true}. Nothing else in the
+// type table reaches this high (the largest measured type is 101), so the bit is safe to read as a flag,
+// and chatLogOf strips it so the media paths still see the type the message really is.
+const MsgDeletedBit int32 = 0x4000
+
+// ParseModifiedChatLog reads SYNCMODMSG, the push Kakao sends when a message is edited. Measured body:
+//
+//	chatId, logId     the chat, and the id of the room notice in chatLog
+//	chatLog           that notice: type 0 with {"logId":<edited log>,"targetRevision":1,
+//	                  "hidden":true,"feedType":25}
+//	modifiedChatLog   the edited message itself: same logId, the new text, revision 1
+//	noSeen, status
+//
+// The push carries the whole new log, so there is nothing to fetch afterwards. Note that Kakao edits in
+// place: the same logId, with revision counting edits.
+func ParseModifiedChatLog(body []byte) (edited, notice ChatLog, err error) {
+	elems, _, err := DecodeDoc(body, 0)
+	if err != nil {
+		return ChatLog{}, ChatLog{}, fmt.Errorf("loco: decoding an edit push: %w", err)
+	}
+	if inner := InnerStatus(body); inner != 0 {
+		return ChatLog{}, ChatLog{}, fmt.Errorf("loco: edit push inner status %d", inner)
+	}
+	mod, ok := findVal(elems, "modifiedChatLog").([]Elem)
+	if !ok {
+		return ChatLog{}, ChatLog{}, fmt.Errorf("loco: edit push carries no modifiedChatLog")
+	}
+	edited = chatLogOf(mod)
+	if n, ok := findVal(elems, "chatLog").([]Elem); ok {
+		notice = chatLogOf(n)
+	}
+	return edited, notice, nil
+}
+
 func chatLogOf(elems []Elem) ChatLog {
 	cl := ChatLog{
 		LogID:    int64Val(findVal(elems, "logId")),
 		ChatID:   int64Val(findVal(elems, "chatId")),
 		AuthorID: int64Val(findVal(elems, "authorId")),
 		Type:     int32Val(findVal(elems, "type")),
+		Revision: int32Val(findVal(elems, "revision")),
 		SendAt:   int64Val(findVal(elems, "sendAt")),
 		Text:     stringVal(findVal(elems, "message")),
 		MsgID:    int64Val(findVal(elems, "msgId")),
@@ -301,6 +346,10 @@ func chatLogOf(elems []Elem) ChatLog {
 	}
 	if del := findVal(elems, "deleted"); del != nil {
 		cl.Deleted = boolVal(del)
+	}
+	if cl.Type&MsgDeletedBit != 0 {
+		cl.Deleted = true
+		cl.Type &^= MsgDeletedBit
 	}
 	cl.Attachment = findVal(elems, "attachment")
 	return cl

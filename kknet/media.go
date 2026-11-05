@@ -23,10 +23,12 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 
 	"github.com/libhwang50/kakaobridge/loco"
@@ -49,6 +51,18 @@ func (c *Client) convertChatLog(ctx context.Context, portal *bridgev2.Portal, in
 	}
 	meta := cl.AttachmentMetaOf()
 	if meta == nil || !carryAsMedia(cl.Type, cl.Text) {
+		if cl.Type == loco.MsgReply {
+			// A Kakao reply is an ordinary message plus a pointer at the one it quotes, and the quoted text
+			// is not in the message at all (see loco.ReplyMetaOf). Matrix has the same shape, so the bridge
+			// points at the quoted message by its log id - the same id it already uses for its own.
+			cm := &bridgev2.ConvertedMessage{Parts: []*bridgev2.ConvertedMessagePart{textPartOf(cl)}}
+			if reply, ok := loco.ReplyMetaOf(cl); ok {
+				cm.ReplyTo = &networkid.MessageOptionalPartID{
+					MessageID: networkid.MessageID(strconv.FormatInt(reply.LogID, 10)),
+				}
+			}
+			return cm, nil
+		}
 		return &bridgev2.ConvertedMessage{Parts: []*bridgev2.ConvertedMessagePart{textPartOf(cl)}}, nil
 	}
 	if url := meta.DownloadURL(); url != "" {
