@@ -289,6 +289,16 @@ func (c *Client) chatInfoFor(ctx context.Context, chatID int64) (*bridgev2.ChatI
 			applyOpenLink(info, link)
 		}
 	}
+	if chatType == "OM" {
+		// A public Open Chat room has a member count, not a member list. Asked about a room whose own count
+		// says 1,976, GETMEM answers with exactly 1,000 entries and does not include the account asking at
+		// all. Passing that off as the whole list made the homeserver remove members that are still in the
+		// chat - including us, which is how a bridged room vanishes from the client. Kakao shows these rooms
+		// a number, so the bridge names only the account (it knows it is in this chat) and lets a ghost
+		// appear when a member speaks.
+		info.Members = selfMemberList(c.meta.UserID, c.senderOf)
+		return info, nil
+	}
 	members := bridgev2.ChatMemberMap{}
 	for _, m := range rd.members {
 		if m.UserID == 0 {
@@ -301,7 +311,12 @@ func (c *Client) chatInfoFor(ctx context.Context, chatID int64) (*bridgev2.ChatI
 		})
 	}
 	if len(members) > 0 {
-		info.Members = &bridgev2.ChatMemberList{IsFull: true, MemberMap: members}
+		// IsFull tells the homeserver it may remove anyone missing. That is only safe when the list covers
+		// the count the chat itself reports (see memberListIsFull).
+		info.Members = &bridgev2.ChatMemberList{
+			IsFull:    memberListIsFull(len(members), rd.summary.ActiveMember),
+			MemberMap: members,
+		}
 	}
 	if chatType == "MemoChat" {
 		name, avatarURL := memoChatMeta(rd.members, c.meta.UserID)
@@ -586,6 +601,25 @@ func (c *Client) reconnect(ctx context.Context) {
 	}
 }
 
+// memberListIsFull says whether a member list can be claimed to be the whole list. GETMEM is capped: for
+// a room whose own count says 1,976 it answered with 1,000 entries. A truncated list claimed as complete
+// makes the homeserver remove members who are still in the chat, so a list that does not reach the count
+// the chat reports is partial - and a count of zero means we do not know, which is also not a claim.
+func memberListIsFull(got, reportedTotal int) bool {
+	return reportedTotal > 0 && got >= reportedTotal
+}
+
+// selfMemberList is the member list for a room whose full membership Kakao does not give: the account
+// itself, which the bridge knows is in the chat. Nothing is claimed about anyone else.
+func selfMemberList(selfID int64, senderOf func(int64) bridgev2.EventSender) *bridgev2.ChatMemberList {
+	list := bridgev2.ChatMemberMap{}
+	list.Set(bridgev2.ChatMember{
+		EventSender: senderOf(selfID),
+		Membership:  event.MembershipJoin,
+	})
+	return &bridgev2.ChatMemberList{MemberMap: list}
+}
+
 // openLink reads the Open Link a chat points at, and remembers which chat points at it so that a later
 // SYNCLINKUP push can find the room.
 func (c *Client) openLink(ctx context.Context, linkID, chatID int64) (*loco.OpenLink, error) {
@@ -753,6 +787,13 @@ func (c *Client) roomEvent(ctx context.Context, cl loco.ChatLog) {
 	}
 	log.Msg("Kakao reports a change to a room; refreshing it instead of bridging the notice")
 
+	if c.chatTypeFor(ctx, cl.ChatID) == "OM" {
+		// An Open Chat room's members come and go constantly, and the bridge carries no member list for
+		// those rooms (docs/protocol-notes.md §7b): each notice would cost a read of a room holding two
+		// thousand members to change nothing.
+		log.Msg("A Kakao room notice for an open chat room; its members are not bridged")
+		return
+	}
 	c.mu.Lock()
 	delete(c.rooms, cl.ChatID) // the re-read must not answer from the state this event just changed
 	c.mu.Unlock()
@@ -895,6 +936,10 @@ func (c *Client) handleMembershipPush(ctx context.Context, log zerolog.Logger, f
 	if !ok {
 		log.Debug().Str("cmd", f.Cmd).Str("body_hex", hex.EncodeToString(f.Body)).
 			Msg("A Kakao membership push named no chat; the next chat list read will see the change")
+		return
+	}
+	if c.chatTypeFor(ctx, chatID) == "OM" {
+		log.Debug().Int64("chat_id", chatID).Msg("An open chat room's members changed; that list is not bridged")
 		return
 	}
 	log.Info().Int64("chat_id", chatID).Msg("Kakao reports a membership change; refreshing the room")
