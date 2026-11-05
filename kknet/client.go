@@ -47,6 +47,9 @@ type Client struct {
 	rooms      map[int64]*roomData
 	users      map[int64]loco.Member
 	seenChats  map[int64]string // chatId -> chat type, from LOGINLIST
+	// links maps an Open Link id to the chat that uses it. Only rooms whose CHATINFO has been read are
+	// in here, which is what lets a SYNCLINKUP push find the room it describes.
+	links map[int64]int64
 	// bridged lists the Kakao log ids this client has put in Matrix, per chat, in increasing order.
 	// A read marker names a log id, and it may name a message the bridge never bridged (a type it
 	// skips, or history Kakao did not serve), so the bridge needs to know what it did bridge in order
@@ -68,6 +71,7 @@ func NewClient(c *Connector, login *bridgev2.UserLogin, meta *LoginMeta) *Client
 		rooms:     map[int64]*roomData{},
 		users:     map[int64]loco.Member{},
 		seenChats: map[int64]string{},
+		links:     map[int64]int64{},
 		bridged:   map[int64][]int64{},
 	}
 }
@@ -213,6 +217,7 @@ func (c *Client) Disconnect() {
 	c.rooms = map[int64]*roomData{}
 	c.users = map[int64]loco.Member{}
 	c.seenChats = map[int64]string{}
+	c.links = map[int64]int64{}
 	c.mu.Unlock()
 }
 

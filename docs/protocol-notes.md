@@ -96,7 +96,8 @@ cost hours:
 
 The login frame carries the token and device id; `LOGINLIST` returns the chat list (§6); `PING` keeps
 the session alive. The server pushes on the same socket: messages as `MSG`, read markers as `DECUNREAD`,
-membership changes as `NEWMEM`/`DELMEM` (§7a). A verb the bridge does not handle is logged with its body
+membership changes as `NEWMEM`/`DELMEM` (§7a), and an Open Chat room's name, intro or picture changing as
+`SYNCLINKUP` (§7b). A verb the bridge does not handle is logged with its body
 in hex, so its name and shape can be read off a real event rather than guessed at.
 `Session.LastLoginlist` is exposed because the chat list arrives during the handshake, before any call
 could ask for it.
@@ -118,7 +119,7 @@ Each entry's `t` names the chat class, and the classes differ in more than the l
 | `MemoChat` | the account's own notes | one member: the account |
 | `PlusChat` | a channel / plus friend | `i`, `k` (the channel name) |
 | `MultiChat` | a group chat — Regular or Team | `i`, `k`; name and picture live in `chatMetas` (§7a) |
-| `OM` | an Open Chat room | **no** `i`/`k`, no title — see §7b |
+| `OM` | an Open Chat room | **no** `i`/`k`, no title; carries `li`/`otk` — the name, intro and picture are on the Open Link, read with `SYNCLINK` (§7b) |
 
 A group needs two or more people besides the account: inviting one friend gives a `DirectChat`, not a
 group.
@@ -201,25 +202,53 @@ Matrix power levels beyond the host.
 ### 7b. Open Chat rooms (`OM`)
 
 An Open Chat room appears in the chat list, and `CHATINFO`/`GETMEM` answer for it — but LOCO gives no
-title, no picture and no member ids: `chatInfo` has `activeMembersCount`, an empty `displayMembers`, and
-fields only these rooms carry (`li`, `otk`), and the `chatDatas` entry has null `i`/`k`. `GETMEM` does
-list the participants. The room's name and thumbnail come from the open-chat service over REST, which
-this bridge does not call — so an Open Chat room bridges as a room with messages and members, unnamed.
+title, no picture and no member ids on the chat itself: `chatInfo` has `activeMembersCount`, an empty
+`displayMembers`, the `chatDatas` entry has null `i`/`k`. What it does carry, and only rooms of this
+kind carry, are two ids that belong to another service: `li` (the **Open Link** id) and `otk` (its
+token). `GETMEM` does list the participants.
 
-What is known about that service, so the next attempt does not start from nothing:
+The room's profile is kept on that link, and it is read over the same LOCO socket:
 
-* The room is addressed by its Open Link id — the `li` in `CHATINFO` (the app's own analytics call it
-  `link_id`, alongside `link_name`, `link_description`, `link_type` and `chat_id`, which is where the
-  existence of a name *and* an intro was confirmed for a test room).
-* `open.kakao.com/c/link/settings?linkId=…` answers with the room's categories and join requirements and
-  nothing else; it is what the WebView behind "Manage Open Chat" loads. The rest of that WebView's calls
-  go through the system WebView stack, which the in-process hook used here does not see.
-* `openchat/v1/*` and `openchat-tab/v1/*` are on `talk-pilsner.kakao.com` — `GET
-  /openchat/v1/user/agreements` and `POST /openchat-tab/v1/tab/now` answer normally with the bridge's
-  credential. Room-profile paths tried under `openchat/v1/chats/…` answer `{"status":500}`, which is what
-  that gateway returns for a route it does not have, so the profile path is not one of the guessed names.
-* The room feed itself is restricted for a young account without identity verification (`601`, "content
-  exposure … temporarily restricted"), which limits what a probe of that family can return.
+| verb | what it does |
+|---|---|
+| `SYNCLINK` | no arguments. Answers `ols`: every link this account has — rooms it created or joined, plus its own profile link. |
+| `UPDATELINK` | writes a room's intro and category: `{li, desc, adid, categoryId}`. |
+| `SYNCLINKUP` | push: `{ol: <the link as it now is>}` — how a rename or a new intro reaches every client. |
+
+`INFOLINK`, `GETLINK`, `SYNCLINKPF` and `SYNCLINKDL` were each asked the same `li` and refused it (inner
+`-203` or `-300`); `SYNCLINK` is the one that answers, and it does not filter by `li` — asking it with
+and without an id returns the same list.
+
+Inside a link object (`loco/openlink.go`):
+
+| key | meaning |
+|---|---|
+| `li` | the link id — the number `CHATINFO` puts in `li` |
+| `ln` | the room name members see → Matrix room name |
+| `desc` | the room intro, multi-line (the client allows 200 characters) → Matrix room topic |
+| `liu` | the room picture, full size → Matrix room avatar |
+| `lu` | the public join URL (`open.kakao.com/o/…`) |
+| `lt` | what the link is: `8` is a chatroom, `1` is a person's own open-profile link |
+| `otk` | link token; it changes when the profile is written |
+| `olu` | the link owner's **open profile** (`nn`, `pi`/`fpi`/`opi`, `pli`) |
+| `ml`, `omt.tags`, `category{id,name{ko,en,ja},icon}` | member limit, tags, category |
+
+Two things matter when using that answer:
+
+* It mixes the account's own profile link in with its rooms — in one measured answer the first entry was
+  the account's profile link, its `ln` equal to the account's nickname. An entry is only used when its
+  `li` is the one the chat named.
+* Open Chat participants appear under an **open profile**, not the account's main profile: `olu` is a
+  separate nickname and image set, kept precisely because main profiles carry real names. The bridge reads
+  participants from `GETMEM` (§7a), which reports those open profiles; a main profile never appears in an
+  Open Chat room.
+
+The earlier leads are closed: the WebView at `open.kakao.com/c/link/…` is server-rendered Nuxt whose HTML
+contains no room data, `c/link/settings` only answers categories and join requirements, and the REST
+paths guessed under `openchat/v1/chats/…` answer `500` — the gateway's answer for a route it does not
+have. The feed endpoints in that family (`openchat-tab/v1/tab/now`) answer `601` for a young account
+without identity verification, which does not affect any of the above. The bridge keys the Matrix portal
+by the Kakao `chatId` and only uses `li` to look the profile up.
 
 ## 8. Chat logs and attachment JSON
 

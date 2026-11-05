@@ -63,11 +63,15 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
 * **`Failed to bridge read receipt … M_NOT_FOUND`** — a receipt was pointed at a synthetic message row.
 * **The self-memo chat has no name or picture** — that chat has no other member to name it after; the
   connector supplies its name and avatar, which an older build did not.
-* **A group room has no name** — three different things: a group that was never named has no name in
-  Kakao either (the phone titles it from its members, so the bridge composes a name of its own), an
-  **Open Chat** room's name and picture are not in the chat protocol at all (`docs/protocol-notes.md`
-  §7b) and are not fetched yet, and a group whose *members* changed may show a stale title until the
-  chat is resynced (`sync-portal` in the room).
+* **A group room has no name** — two different things: a group that was never named has no name in
+  Kakao either (the phone titles it from its members, so the bridge composes a name of its own), and a
+  group whose *members* changed may show a stale title until the chat is resynced (`sync-portal` in the
+  room).
+* **An Open Chat room has no name, topic or picture** — that profile is not on the chat: the bridge reads
+  it from the room's Open Link with a second call (`docs/protocol-notes.md` §7b). If the room stayed
+  unnamed, look for `Kakao did not describe this open chat room` in the log: that call was refused and the
+  room was left as it was. `!kakaotalk sync-portal` in the room asks again. Renaming the room or editing
+  its intro on the phone updates the Matrix room by itself: Kakao pushes the new link (`SYNCLINKUP`).
 * **A Team Chat's "About team" text is not the room topic** — that text is not in the chat protocol at
   all, it comes from a second Kakao service (`docs/protocol-notes.md` §7a). If the topic stayed empty,
   look for `Kakao's team service did not describe this room` in the log: the request was refused and the

@@ -444,6 +444,13 @@ func (s *Session) GetMem(chatID int64) (Frame, error) {
 	return s.Request("GETMEM", body, 8*time.Second)
 }
 
+// SyncLink asks for every Open Link this account has: the Open Chat rooms it joined or created, and
+// its own open profile. The server does not filter by link id, so the caller picks the entry it wants
+// (see ParseSyncLinkResponse).
+func (s *Session) SyncLink() (Frame, error) {
+	return s.Request("SYNCLINK", EncodeDoc(nil), 8*time.Second)
+}
+
 func (s *Session) NotiRead(chatID, watermark int64) (Frame, error) {
 	body := EncodeDoc([]Elem{
 		{Key: "chatId", Type: tInt64, Val: chatID},

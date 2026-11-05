@@ -279,6 +279,16 @@ func (c *Client) chatInfoFor(ctx context.Context, chatID int64) (*bridgev2.ChatI
 			}
 		}
 	}
+	// An Open Chat room is described by its Open Link, never by the chat: CHATINFO for one names a link
+	// and a member count, and the name, intro and picture live on that link (see loco.OpenLink).
+	if chatType == "OM" && rd.summary.LinkID != 0 {
+		if link, err := c.openLink(ctx, rd.summary.LinkID, chatID); err != nil {
+			c.login.Log.Warn().Err(err).Int64("chat_id", chatID).Int64("link_id", rd.summary.LinkID).
+				Msg("Kakao did not describe this open chat room")
+		} else {
+			applyOpenLink(info, link)
+		}
+	}
 	members := bridgev2.ChatMemberMap{}
 	for _, m := range rd.members {
 		if m.UserID == 0 {
@@ -576,6 +586,51 @@ func (c *Client) reconnect(ctx context.Context) {
 	}
 }
 
+// openLink reads the Open Link a chat points at, and remembers which chat points at it so that a later
+// SYNCLINKUP push can find the room.
+func (c *Client) openLink(ctx context.Context, linkID, chatID int64) (*loco.OpenLink, error) {
+	c.mu.Lock()
+	sess := c.sess
+	if c.links == nil {
+		c.links = map[int64]int64{}
+	}
+	c.links[linkID] = chatID
+	c.mu.Unlock()
+	if sess == nil {
+		return nil, fmt.Errorf("kknet: no Kakao session to read link %d from", linkID)
+	}
+	f, err := sess.SyncLink()
+	if err != nil {
+		return nil, fmt.Errorf("kknet: asking Kakao for its links: %w", err)
+	}
+	return loco.ParseSyncLinkResponse(f.Body, linkID)
+}
+
+// applyOpenLink puts what a link says about itself into the room: its name, its intro (Matrix keeps a
+// room's description as the topic) and its picture.
+func applyOpenLink(info *bridgev2.ChatInfo, link *loco.OpenLink) {
+	if link == nil {
+		return
+	}
+	if link.Name != "" {
+		name := link.Name
+		info.Name = &name
+	}
+	if link.Description != "" {
+		desc := link.Description
+		info.Topic = &desc
+	}
+	if link.ImageURL != "" {
+		url := link.ImageURL
+		info.Avatar = &bridgev2.Avatar{
+			ID: networkid.AvatarID(url),
+			Get: func(ctx context.Context) ([]byte, error) {
+				return fetchURL(ctx, url)
+			},
+		}
+	}
+}
+
 func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Frame) {
 	switch f.Cmd {
 	case "MSG", "WRITE", "WRITEMEDIA", "SYNCMSG":
@@ -596,6 +651,9 @@ func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Fram
 		// A member arrived or left. Measured: membership changes are pushed under their own verbs rather
 		// than as MSG, so they never reach the message path on their own.
 		c.handleMembershipPush(ctx, log, f)
+	case "SYNCLINKUP":
+		// The name, intro or picture of an Open Chat room changed. The push carries the whole link.
+		c.handleLinkUpdate(ctx, log, f)
 	case "KICKOUT":
 		// Another connection used this device id - typically one of our own probe tools sharing a
 		// credential. The pump ends and reconnects; the other side is not a Kakao user we can do
@@ -605,6 +663,32 @@ func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Fram
 		log.Debug().Str("cmd", f.Cmd).Int("body_len", len(f.Body)).
 			Str("body_hex", hex.EncodeToString(f.Body)).
 			Msg("Ignoring a LOCO push")
+	}
+}
+
+// handleLinkUpdate routes a changed Open Link to the room it describes. Only rooms whose CHATINFO has
+// been read are known; a room the bridge has never opened has no link id to match, and it reads the
+// profile when it is first resolved.
+func (c *Client) handleLinkUpdate(ctx context.Context, log zerolog.Logger, f loco.Frame) {
+	link, err := loco.ParseLinkUpdate(f.Body)
+	if err != nil {
+		log.Debug().Err(err).Str("cmd", f.Cmd).Msg("Could not parse Kakao's link update")
+		return
+	}
+	c.mu.Lock()
+	chatID, known := c.links[link.LinkID]
+	c.mu.Unlock()
+	if !known {
+		log.Debug().Int64("link_id", link.LinkID).Msg("A Kakao link changed; none of our rooms uses it")
+		return
+	}
+	log.Info().Int64("chat_id", chatID).Int64("link_id", link.LinkID).
+		Msg("Kakao re-described a room; reading it again")
+	c.mu.Lock()
+	delete(c.rooms, chatID) // the re-read must answer from the link as it is now
+	c.mu.Unlock()
+	if err := c.queueChatResync(ctx, chatID, c.chatTypeFor(ctx, chatID)); err != nil {
+		log.Warn().Err(err).Int64("chat_id", chatID).Msg("Could not refresh a room after a link update")
 	}
 }
 

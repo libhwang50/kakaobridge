@@ -349,6 +349,10 @@ type ChatSummary struct {
 	// chats (type MultiChat) carry any.
 	Metas     []ChatMeta
 	PushAlert bool
+	// LinkID and OpenToken are carried only by Open Chat rooms (type OM): they name the Open Link that
+	// holds the room's name, intro and picture, which the chat itself never reports (see OpenLink).
+	LinkID    int64
+	OpenToken int64
 }
 
 // ChatMeta is one entry of CHATINFO's chatMetas array: a room-level setting, changed by a member and
@@ -406,6 +410,8 @@ func ParseChatInfoResponse(body []byte) (*ChatSummary, error) {
 		LastLogID:    int64Val(findVal(info, "lastLogId")),
 		LastSeenLog:  int64Val(findVal(info, "lastSeenLogId")),
 		PushAlert:    boolVal(findVal(info, "pushAlert")),
+		LinkID:       int64Val(findVal(info, "li")),
+		OpenToken:    int64Val(findVal(info, "otk")),
 	}
 	if doc, ok := findVal(info, "lastChatLog").([]Elem); ok {
 		cl := chatLogOf(doc)

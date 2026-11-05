@@ -106,6 +106,36 @@ func TestTeamIntroBecomesTheRoomTopic(t *testing.T) {
 	applyTeamInfo(unnamed, nil)
 }
 
+// An Open Chat room's chat object names nothing; everything a Matrix room can show comes from the link
+// the chat points at.
+func TestAnOpenChatRoomTakesItsProfileFromItsLink(t *testing.T) {
+	info := &bridgev2.ChatInfo{}
+	applyOpenLink(info, &loco.OpenLink{
+		LinkID:      4860,
+		Name:        "Bridge Dev Room",
+		Description: "We are building a bridge.\n\nTry it from any Matrix client.",
+		ImageURL:    "https://open.kakaocdn.net/dn/room/image.jpg",
+	})
+	if info.Name == nil || *info.Name != "Bridge Dev Room" {
+		t.Errorf("name = %v, want the room's own name", info.Name)
+	}
+	if info.Topic == nil || *info.Topic != "We are building a bridge.\n\nTry it from any Matrix client." {
+		t.Errorf("topic = %v, want the room's intro", info.Topic)
+	}
+	if info.Avatar == nil || string(info.Avatar.ID) != "https://open.kakaocdn.net/dn/room/image.jpg" {
+		t.Errorf("avatar = %v, want the room's picture", info.Avatar)
+	}
+
+	// A room with nothing to say about itself stays unnamed: inventing a name here would put words in
+	// the room that Kakao never said.
+	silent := &bridgev2.ChatInfo{}
+	applyOpenLink(silent, &loco.OpenLink{LinkID: 4861})
+	if silent.Name != nil || silent.Topic != nil || silent.Avatar != nil {
+		t.Errorf("got name=%v topic=%v avatar=%v, want nothing", silent.Name, silent.Topic, silent.Avatar)
+	}
+	applyOpenLink(silent, nil)
+}
+
 // A room notice replayed from history is not a change happening now; only the live one is worth a
 // round trip.
 func TestOnlyALiveRoomNoticeIsNews(t *testing.T) {
