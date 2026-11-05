@@ -785,13 +785,19 @@ func (c *Client) roomEvent(ctx context.Context, cl loco.ChatLog) {
 			Msg("Kakao sent a room event the bridge could not read")
 		return
 	}
-	log.Msg("Kakao reports a change to a room; refreshing it instead of bridging the notice")
-
+	// A zerolog Event is written once: this path decides what to say and then says it, because emitting a
+	// second time on the same Event panics the process (that is how a room notice took the bridge down).
+	msg := "Kakao reports a change to a room; refreshing it instead of bridging the notice"
+	refresh := true
 	if c.chatTypeFor(ctx, cl.ChatID) == "OM" {
 		// An Open Chat room's members come and go constantly, and the bridge carries no member list for
 		// those rooms (docs/protocol-notes.md §7b): each notice would cost a read of a room holding two
 		// thousand members to change nothing.
-		log.Msg("A Kakao room notice for an open chat room; its members are not bridged")
+		msg = "A Kakao room notice for an open chat room; its members are not bridged"
+		refresh = false
+	}
+	log.Msg(msg)
+	if !refresh {
 		return
 	}
 	c.mu.Lock()
