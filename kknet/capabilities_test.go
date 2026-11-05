@@ -36,6 +36,25 @@ func TestCapabilitiesMatchWhatCanBeSent(t *testing.T) {
 			t.Errorf("%s claims a size limit of %d; Kakao's real ceiling has not been measured", mt, feat.MaxSize)
 		}
 	}
+
+	// Formatting is claimed by the same rule: matrixStyle carries exactly these four marks into a Kakao
+	// WRITE, and styledHTML renders the same four back. Anything a Kakao bubble has no room for must not be
+	// claimed, or a client will offer the user a button that silently goes flat.
+	for _, f := range []event.FormattingFeature{
+		event.FmtBold, event.FmtItalic, event.FmtStrikethrough, event.FmtSpoiler,
+	} {
+		if lvl := feats.Formatting[f]; !lvl.Full() {
+			t.Errorf("%s must be claimed: the bridge converts it in both directions, got level %d", f, lvl)
+		}
+	}
+	for _, f := range []event.FormattingFeature{
+		event.FmtUnderline, event.FmtInlineCode, event.FmtCodeBlock, event.FmtBlockquote,
+		event.FmtUnorderedList, event.FmtOrderedList, event.FmtHeaders, event.FmtSpoilerReason,
+	} {
+		if lvl := feats.Formatting[f]; lvl.Partial() {
+			t.Errorf("%s is not converted (a Kakao bubble has nothing for it), but is claimed at level %d", f, lvl)
+		}
+	}
 	if f := feats.File[event.MsgImage]; f == nil || f.Caption != event.CapLevelPartialSupport {
 		t.Error("a photo caption is bridged as a separate Kakao message, so it must be claimed as partially " +
 			"supported: Kakao's composer has no caption and the server ignores extra.cmt")

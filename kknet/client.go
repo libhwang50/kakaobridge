@@ -365,6 +365,11 @@ func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridg
 // but at partial support, because the gateway keeps its own allow-list of extensions - it answers
 // EXTENSION_NOT_ALLOWED for e.g. .apk - and the bridge passes that refusal through unchanged.
 // Audio is not claimed: Kakao voice notes are their own format and have not been measured.
+//
+// The four formatting marks are what a Kakao bubble really has room for, and both directions of them are
+// implemented: kakaoTextOf reads them out of a formatted Matrix message and sends them the way the client
+// does, styledHTML renders the ones Kakao sends back. What is not claimed - underline, code, quotes, lists,
+// link markup - is sent as its words, which is what Kakao's own client does with text it cannot mark up.
 func (c *Client) GetCapabilities(_ context.Context, _ *bridgev2.Portal) *event.RoomFeatures {
 	images := map[string]event.CapabilitySupportLevel{
 		"image/jpeg": event.CapLevelFullySupported,
@@ -373,6 +378,12 @@ func (c *Client) GetCapabilities(_ context.Context, _ *bridgev2.Portal) *event.R
 		"image/webp": event.CapLevelFullySupported,
 	}
 	return &event.RoomFeatures{
+		Formatting: event.FormattingFeatureMap{
+			event.FmtBold:          event.CapLevelFullySupported,
+			event.FmtItalic:        event.CapLevelFullySupported,
+			event.FmtStrikethrough: event.CapLevelFullySupported,
+			event.FmtSpoiler:       event.CapLevelFullySupported,
+		},
 		File: event.FileFeatureMap{
 			event.MsgImage: &event.FileFeatures{
 				MimeTypes: images,
@@ -423,7 +434,7 @@ func (c *Client) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMe
 	case event.MsgAudio:
 		return nil, mediaRefusal(msg.Content.MsgType)
 	}
-	text, err := kakaoTextOf(msg.Content)
+	text, styles, err := kakaoTextOf(msg.Content)
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +442,7 @@ func (c *Client) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMe
 	if sess == nil {
 		return nil, fmt.Errorf("kknet: not connected to KakaoTalk right now; try again in a moment")
 	}
-	f, err := sess.WriteMsg(chatID, text)
+	f, err := sess.WriteRaw(chatID, text, loco.WriteExtra(styles), loco.ClientMsgID())
 	if err != nil {
 		return nil, fmt.Errorf("kknet: sending to Kakao: %w", err)
 	}
@@ -451,20 +462,25 @@ func (c *Client) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMe
 	}, nil
 }
 
-// kakaoTextOf decides what can actually be sent. Kakao's WRITE carries a plain string; formatting is
-// dropped because Kakao's own bubbles are plain text, and anything that needs a media pipeline is
-// refused in words the user can act on rather than silently degraded.
-func kakaoTextOf(content *event.MessageEventContent) (string, error) {
+// kakaoTextOf decides what can actually be sent. Kakao's WRITE carries the text on its own and, when the
+// message is formatted, the styles beside it in a separate field: matrixStyle reads them out of the HTML a
+// Matrix client sends, and WriteExtra spells them the way the client does. A message with no HTML keeps its
+// body, because that is all the sender had. Anything that needs a media pipeline is refused in words the
+// user can act on rather than silently degraded.
+func kakaoTextOf(content *event.MessageEventContent) (string, *loco.RichText, error) {
 	switch content.MsgType {
 	case event.MsgText, event.MsgNotice:
-		if content.Body == "" {
-			return "", fmt.Errorf("kknet: empty message")
+		if text, styles, ok := matrixStyle(content); ok {
+			return text, styles, nil
 		}
-		return content.Body, nil
+		if content.Body == "" {
+			return "", nil, fmt.Errorf("kknet: empty message")
+		}
+		return content.Body, nil, nil
 	case event.MsgEmote:
-		return "* " + content.Body, nil
+		return "* " + content.Body, nil, nil
 	default:
-		return "", fmt.Errorf("kknet: only text and photos can be sent to KakaoTalk so far "+
+		return "", nil, fmt.Errorf("kknet: only text and photos can be sent to KakaoTalk so far "+
 			"(this one is %s)", content.MsgType)
 	}
 }

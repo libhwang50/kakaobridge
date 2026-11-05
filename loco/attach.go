@@ -390,3 +390,62 @@ func RichTextOf(cl ChatLog) (*RichText, bool) {
 func (rt *RichText) Any() bool {
 	return rt != nil && len(rt.Bold)+len(rt.Italic)+len(rt.Strike)+len(rt.Spoilers) > 0
 }
+
+// writeStyles is the `extra` field of WRITE, spelled the way the client spells it: styles are
+// [loc, length] pairs under richText, spoilers are {"loc","len"} objects beside it.
+type writeStyles struct {
+	RichText *struct {
+		Bold   [][]int `json:"bold,omitempty"`
+		Italic [][]int `json:"italic,omitempty"`
+		Strike [][]int `json:"strike,omitempty"`
+	} `json:"richText,omitempty"`
+	Spoilers []struct {
+		Loc int `json:"loc"`
+		Len int `json:"len"`
+	} `json:"spoilers,omitempty"`
+}
+
+func writePairs(rs []StyleRange) [][]int {
+	out := make([][]int, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, []int{r.Loc, r.Length})
+	}
+	return out
+}
+
+// WriteExtra renders styles as the JSON a client sends beside a message it is writing. WRITE carries it in
+// the `extra` field, and Kakao stores it back as the message's attachment. Measured from the client's own
+// connection: selecting a composed message and pressing Bold sent
+//
+//	extra={"richText":{"bold":[[0,18]]}}
+//
+// and the bolded word of a Korean message came back as attachment={"richText":{"bold":[[13,2]]}} over
+// "이미지 영상 전송 가능 확인" - fifteen characters, thirty-seven bytes, so the positions name
+// characters, not bytes, exactly as StyleRange does on the way in.
+//
+// It returns "" when there is nothing to style, and then the field is left out entirely, as an unstyled
+// WRITE leaves it out.
+func WriteExtra(rt *RichText) string {
+	if !rt.Any() {
+		return ""
+	}
+	doc := writeStyles{}
+	if len(rt.Bold)+len(rt.Italic)+len(rt.Strike) > 0 {
+		doc.RichText = &struct {
+			Bold   [][]int `json:"bold,omitempty"`
+			Italic [][]int `json:"italic,omitempty"`
+			Strike [][]int `json:"strike,omitempty"`
+		}{writePairs(rt.Bold), writePairs(rt.Italic), writePairs(rt.Strike)}
+	}
+	for _, s := range rt.Spoilers {
+		doc.Spoilers = append(doc.Spoilers, struct {
+			Loc int `json:"loc"`
+			Len int `json:"len"`
+		}{s.Loc, s.Length})
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}

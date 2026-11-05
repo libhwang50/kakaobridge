@@ -81,9 +81,10 @@ func styledHTML(text string, rt *loco.RichText) string {
 				chunk = "<del>" + chunk + "</del>"
 			}
 			if mark&styleSpoiler != 0 {
-				// The class the Matrix spec defines for a spoiler, so a client that hides spoilers
-				// hides this the same way it hides its own.
-				chunk = `<span class="mx-spoiler">` + chunk + "</span>"
+				// Both spellings clients use for a spoiler: the class the Matrix spec defines, and the
+				// data attribute this user's client emits and hides on. A span carrying only the class
+				// showed as ordinary text there, so the bridge sends both and lets each client read its own.
+				chunk = `<span class="mx-spoiler" data-mx-spoiler="">` + chunk + "</span>"
 			}
 		}
 		b.WriteString(chunk)

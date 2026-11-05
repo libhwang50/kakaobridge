@@ -100,9 +100,13 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
   chat's history. "Delete only for me" is not bridged at all: it leaves no trace in what the server sends.
 * **A reply arrived as a plain message** — a Kakao reply is a pointer at the message it quotes, not quoted
   text. If that message was never bridged (older than the bridged history), Matrix has nothing to point at.
-* **A styled message arrived plain** — bold, italic, strikethrough and spoilers are ranges kept beside the
-  text (§8a). A range that does not fit the text is dropped rather than moved, and a style the bridge has
-  not measured on the wire (underline, highlight, colour) is not read yet. Styles are not sent to Kakao.
+* **A styled Kakao message arrived plain** — bold, italic, strikethrough and spoilers are ranges kept beside
+  the text (§8a). A range that does not fit the text is dropped rather than moved, and a style the bridge has
+  not measured on the wire (underline, highlight, colour) is not read yet.
+* **A styled Matrix message arrived plain in Kakao** — the marks are read out of the message's HTML (§8a), so
+  a client that sends only a body, its Markdown as plain text, gives the bridge nothing to read; the marks
+  Kakao has no room for (underline, code, quotes, lists) are sent as their words on purpose. A bridge older
+  than this feature sent every style as plain text.
 * **No space, just rooms** — `bridge.personal_filtering_spaces: true`.
 * **A friend's room has no avatar** — a Kakao account with the default avatar has no profile image URL.
   That is not a failed fetch.

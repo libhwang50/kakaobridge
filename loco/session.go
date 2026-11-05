@@ -281,19 +281,26 @@ func (s *Session) Close() error { return s.conn.Close() }
 // high-level helpers ---------------------------------------------------------
 
 func (s *Session) WriteMsg(chatID int64, msg string) (Frame, error) {
-	return s.WriteRaw(chatID, msg, ClientMsgID())
+	return s.WriteRaw(chatID, msg, "", ClientMsgID())
 }
 
-// WriteRaw sends WRITE with an explicit client msgId.
-func (s *Session) WriteRaw(chatID int64, msg string, msgID int64) (Frame, error) {
-	body := EncodeDoc([]Elem{
+// WriteRaw sends WRITE with an explicit client msgId. extra carries the message's styles, or "" for a
+// plain message; see WriteExtra for what it looks like and why it is called that.
+func (s *Session) WriteRaw(chatID int64, msg, extra string, msgID int64) (Frame, error) {
+	elems := []Elem{
 		{Key: "chatId", Type: tInt64, Val: chatID},
 		{Key: "msg", Type: tString, Val: msg},
 		{Key: "msgId", Type: tInt64, Val: msgID},
 		{Key: "type", Type: tInt32, Val: int32(1)},
-		{Key: "silence", Type: tBool, Val: false},
-		{Key: "scope", Type: tInt32, Val: int32(1)},
-	})
+	}
+	if extra != "" {
+		elems = append(elems, Elem{Key: "extra", Type: tString, Val: extra})
+	}
+	elems = append(elems,
+		Elem{Key: "silence", Type: tBool, Val: false},
+		Elem{Key: "scope", Type: tInt32, Val: int32(1)},
+	)
+	body := EncodeDoc(elems)
 	return s.Request("WRITE", body, 8*time.Second)
 }
 

@@ -331,10 +331,28 @@ the two numbers `loc` and `length`, and `RichText` carries exactly three lists o
 style-shaped names appear in the app's strings (`underline`, `highlight`, `color`, `subText`, `linkText`) but
 not in that model, so there is nothing further measured here. Sent with the text `Rich text testing. Bold
 text. Italic text. Strikethrough.  Spoiler.`, those offsets select exactly `Bold text.`, `Strikethrough. `
-(the client strikes the space after the period too) and `Spoiler.`. Those samples are ASCII, so they do not
-say whether an index counts bytes, characters, or UTF-16 code units; the client is a JVM app and its text
-APIs count UTF-16, which is what `kknet/format.go` assumes, and a range that does not fit the text is
-dropped rather than moved.
+(the client strikes the space after the period too) and `Spoiler.`.
+
+The positions count characters, not bytes: `이미지 영상 전송 가능 확인` — fifteen characters,
+thirty-seven bytes — came back with `{"richText":{"bold":[[13,2]]}}`, which is the word `확인` and
+nothing else. The bridge reads and writes them with that indexing (`kknet/format.go`, `kknet/format_in.go`),
+and a range that does not fit the text is dropped rather than moved. An astral character, which would tell
+UTF-16 code units apart from characters, has not been measured; the client is a JVM app, so a range it
+produced counts UTF-16.
+
+**The same ranges go back out in `extra`.** A client that styles the message it is writing puts them in the
+`extra` field of `WRITE`, and Kakao stores that as the message's attachment. Captured from the phone's own
+connection: selecting a composed message and pressing Bold sent
+
+```text
+extra={"richText":{"bold":[[0,18]]}}
+```
+
+That is how a formatted Matrix message reaches Kakao with its formatting: the bridge reads the marks out of
+the event's HTML — `<strong>`/`<b>`, `<em>`/`<i>`, `<del>`/`<s>`, and a spoiler span in either spelling
+clients use — and sends the ranges; `matrixStyle` does it, and the four marks are what `GetCapabilities`
+claims. What a Kakao bubble has no room for — underline, code, quotes, lists, link markup — is sent as its
+words, which is what Kakao's own client does with the same text.
 
 **In the app, not yet on the wire here.** In an Open Chat room the message menu also offers reactions and
 "Reply in thread". Neither has been captured on the wire by this bridge, so neither is bridged.
@@ -343,7 +361,9 @@ dropped rather than moved.
 
 `loco/session.go`.
 
-`WRITE` is a text message: `chatId`, `message`, `type`, `attachType`, `extra`. `WRITEMEDIA` is the
+`WRITE` is a text message. The fields the client puts on the wire for one are `chatId`, `msgId`, `msg`,
+`type`, `noSeen`, `extra`, `scope`, `silence` — `extra` only when the message is styled (§8a). `msgId` is
+chosen by the client (`ClientMsgID`). `WRITEMEDIA` is the
 media commit and its body differs by kind — measured from the phone and re-verified with the bridge's
 own credential (`loco/session_test.go` decodes what the session actually puts on the wire):
 

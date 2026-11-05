@@ -19,7 +19,7 @@ func TestStyledTextBecomesMatrixHTML(t *testing.T) {
 		Spoilers: []loco.StyleRange{{Loc: 59, Length: 8}},
 	}
 	want := `Rich text testing. <strong>Bold text.</strong> Italic text. <del>Strikethrough. </del> ` +
-		`<span class="mx-spoiler">Spoiler.</span>`
+		`<span class="mx-spoiler" data-mx-spoiler="">Spoiler.</span>`
 	if got := styledHTML(text, rt); got != want {
 		t.Errorf("got\n  %s\nwant\n  %s", got, want)
 	}
@@ -50,9 +50,9 @@ func TestASpoilerAroundBoldKeepsBoth(t *testing.T) {
 		Bold:     []loco.StyleRange{{Loc: 4, Length: 6}},
 		Spoilers: []loco.StyleRange{{Loc: 0, Length: len(text)}},
 	}
-	want := `<span class="mx-spoiler">the </span>` +
-		`<span class="mx-spoiler"><strong>hidden</strong></span>` +
-		`<span class="mx-spoiler"> word</span>`
+	want := `<span class="mx-spoiler" data-mx-spoiler="">the </span>` +
+		`<span class="mx-spoiler" data-mx-spoiler=""><strong>hidden</strong></span>` +
+		`<span class="mx-spoiler" data-mx-spoiler=""> word</span>`
 	if got := styledHTML(text, rt); got != want {
 		t.Errorf("got\n  %s\nwant\n  %s", got, want)
 	}
