@@ -1127,6 +1127,11 @@ func convertedContentOf(cl loco.ChatLog) *event.MessageEventContent {
 				content.Format = "org.matrix.custom.html"
 				content.FormattedBody = html
 			}
+			// The body is the fallback for a client that ignores HTML. A spoiler is the one style whose
+			// words that fallback would give away, so it is marked there too (spoilerBody).
+			if body := spoilerBody(cl.Text, rt); body != "" {
+				content.Body = body
+			}
 		}
 		return content
 	}

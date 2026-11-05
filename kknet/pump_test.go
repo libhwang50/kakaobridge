@@ -160,3 +160,24 @@ func TestAPushForAChatTheListNeverNamedResolvesItsType(t *testing.T) {
 		t.Errorf("a chat with no session and no cache entry = %q, want it left unknown", got)
 	}
 }
+
+// The styles are Kakao's, but the message must reach Matrix in a shape clients understand: HTML for the
+// formatting, and a body that does not give a spoiler away.
+func TestAStyledKakaoMessageCarriesBothShapes(t *testing.T) {
+	cl := loco.ChatLog{
+		LogID:      3967067130697525249,
+		Type:       loco.MsgText,
+		Text:       "the answer is 42",
+		Attachment: `{"spoilers":[{"loc":4,"len":6}],"richText":{"bold":[[14,2]]}}`,
+	}
+	c := convertedContentOf(cl)
+	if c.Format != event.FormatHTML {
+		t.Fatalf("a styled message must carry HTML, got format %q", c.Format)
+	}
+	if c.FormattedBody != `the <span class="mx-spoiler" data-mx-spoiler="">answer</span> is <strong>42</strong>` {
+		t.Errorf("formatted body: %q", c.FormattedBody)
+	}
+	if c.Body != "the ||answer|| is 42" {
+		t.Errorf("the plain body must keep the spoiler hidden: %q", c.Body)
+	}
+}

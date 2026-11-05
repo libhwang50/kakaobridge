@@ -3,6 +3,7 @@
 package kknet
 
 import (
+	"sort"
 	"strings"
 	"unicode/utf16"
 
@@ -35,13 +36,7 @@ func styledHTML(text string, rt *loco.RichText) string {
 		return ""
 	}
 	runes := []rune(text)
-	// units[i] is where rune i sits in Kakao's index space, and total is the length of that space.
-	units := make([]int, len(runes))
-	total := 0
-	for i, r := range runes {
-		units[i] = total
-		total += utf16.RuneLen(r)
-	}
+	units, total := unitPositions(runes)
 	marks := make([]int, len(runes))
 	apply := func(rs []loco.StyleRange, flag int) {
 		for _, r := range rs {
@@ -105,4 +100,74 @@ func escapeHTML(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	return strings.ReplaceAll(s, ">", "&gt;")
+}
+
+// unitPositions says where each rune of a text sits in the index space Kakao counts style ranges in, and
+// how long that space is. Both directions of the conversion need it, and getting it wrong silently formats
+// the wrong words.
+func unitPositions(runes []rune) (units []int, total int) {
+	units = make([]int, len(runes))
+	for i, r := range runes {
+		units[i] = total
+		total += utf16.RuneLen(r)
+	}
+	return units, total
+}
+
+// spoilerBody is the plain-text fallback for a message with a spoiler in it. A spoiler's whole point is
+// that its words are not shown, so a body that prints them plainly hands the answer back to any client
+// that ignores the HTML. The client here writes ||like this|| in the fallback body of its own spoiler, so
+// that is the marker used. The other styles need no marker: bold text reads the same either way.
+//
+// It returns "" when there is no spoiler to hide, or none that fits the text.
+func spoilerBody(text string, rt *loco.RichText) string {
+	if len(rt.Spoilers) == 0 || text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	units, total := unitPositions(runes)
+	var spans [][2]int
+	for _, r := range rt.Spoilers {
+		if r.Loc < 0 || r.Length <= 0 || r.Loc+r.Length > total {
+			continue
+		}
+		start, end := -1, -1
+		for i := range runes {
+			if units[i] >= r.Loc && units[i] < r.Loc+r.Length {
+				if start < 0 {
+					start = i
+				}
+				end = i
+			}
+		}
+		if start >= 0 {
+			spans = append(spans, [2]int{start, end + 1})
+		}
+	}
+	if len(spans) == 0 {
+		return ""
+	}
+	// Kakao keeps spoilers as separate ranges; two touching ones are one hidden run of words.
+	sort.Slice(spans, func(i, j int) bool { return spans[i][0] < spans[j][0] })
+	var merged [][2]int
+	for _, s := range spans {
+		if n := len(merged); n > 0 && s[0] <= merged[n-1][1] {
+			if s[1] > merged[n-1][1] {
+				merged[n-1][1] = s[1]
+			}
+			continue
+		}
+		merged = append(merged, s)
+	}
+	var b strings.Builder
+	at := 0
+	for _, s := range merged {
+		b.WriteString(string(runes[at:s[0]]))
+		b.WriteString("||")
+		b.WriteString(string(runes[s[0]:s[1]]))
+		b.WriteString("||")
+		at = s[1]
+	}
+	b.WriteString(string(runes[at:]))
+	return b.String()
 }

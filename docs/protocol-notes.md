@@ -354,6 +354,11 @@ clients use — and sends the ranges; `matrixStyle` does it, and the four marks 
 claims. What a Kakao bubble has no room for — underline, code, quotes, lists, link markup — is sent as its
 words, which is what Kakao's own client does with the same text.
 
+**A spoiler stays hidden in the fallback body too.** A Matrix message carries a plain-text body next to its
+HTML, and a spoiler's whole point is that its words are not shown — so the bridge marks them there as
+`||like this||`, which is the marker the client here writes in the fallback body of its own spoiler. The
+other styles need no marker; they read the same either way.
+
 **In the app, not yet on the wire here.** In an Open Chat room the message menu also offers reactions and
 "Reply in thread". Neither has been captured on the wire by this bridge, so neither is bridged.
 

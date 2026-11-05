@@ -116,3 +116,32 @@ func TestNoStylesMeansNoHTML(t *testing.T) {
 		t.Errorf("got %q, want nothing when no range fits", got)
 	}
 }
+
+// A spoiler's words are the thing being hidden, so the plain-text fallback has to hide them too. The
+// marker is the one this user's client writes in the fallback body of its own spoiler.
+func TestASpoilerIsHiddenInThePlainTextToo(t *testing.T) {
+	one := &loco.RichText{Spoilers: []loco.StyleRange{{Loc: 4, Length: 6}}}
+	if got := spoilerBody("the answer is 42", one); got != "the ||answer|| is 42" {
+		t.Errorf("got %q, want the hidden word marked", got)
+	}
+	// Kakao stores a spoiler as ranges; two that touch are one hidden run of words, not two.
+	two := &loco.RichText{Spoilers: []loco.StyleRange{{Loc: 4, Length: 3}, {Loc: 7, Length: 3}}}
+	if got := spoilerBody("the answer is 42", two); got != "the ||answer|| is 42" {
+		t.Errorf("got %q, want one marker around the merged run", got)
+	}
+	if got := spoilerBody("bold words", &loco.RichText{Bold: []loco.StyleRange{{Loc: 0, Length: 4}}}); got != "" {
+		t.Errorf("bold reads the same in plain text, so nothing is marked: %q", got)
+	}
+	if got := spoilerBody("short", &loco.RichText{Spoilers: []loco.StyleRange{{Loc: 40, Length: 5}}}); got != "" {
+		t.Errorf("a range that does not fit the text is dropped, not guessed at: %q", got)
+	}
+	// Counted in the units Kakao counts in: Korean letters are one each and an astral emoji is two, so the
+	// word at six is the answer and not something next to it.
+	kr := &loco.RichText{Spoilers: []loco.StyleRange{{Loc: 6, Length: 1}}}
+	if got := spoilerBody("숨김 \U0001F600 답", kr); got != "숨김 \U0001F600 ||답||" {
+		t.Errorf("got %q", got)
+	}
+	if got := spoilerBody("숨김 ✅ 답", &loco.RichText{Spoilers: []loco.StyleRange{{Loc: 5, Length: 1}}}); got != "숨김 ✅ ||답||" {
+		t.Errorf("a plain BMP emoji is one unit: %q", got)
+	}
+}
