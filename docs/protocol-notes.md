@@ -241,7 +241,14 @@ Two things matter when using that answer:
 * Open Chat participants appear under an **open profile**, not the account's main profile: `olu` is a
   separate nickname and image set, kept precisely because main profiles carry real names. The bridge reads
   participants from `GETMEM` (§7a), which reports those open profiles; a main profile never appears in an
-  Open Chat room.
+  Open Chat room. The bridge keeps one ghost per Kakao account, so a person who appears in both a friend
+  chat and an Open Chat room is one Matrix user showing whichever of the two profiles was read last.
+  Kakao separates those identities per room; the bridge cannot, and says so rather than pretending
+  otherwise.
+* `SYNCLINK` is the read path for the account's own links — the rooms it created and the ones it joined.
+  It was measured on a room this account created; whether a room merely joined appears in the same list
+  was not measured. Either way the failure mode is safe: no matching entry means the bridge leaves the
+  room as it is and logs `Kakao did not describe this open chat room`.
 
 The earlier leads are closed: the WebView at `open.kakao.com/c/link/…` is server-rendered Nuxt whose HTML
 contains no room data, `c/link/settings` only answers categories and join requirements, and the REST

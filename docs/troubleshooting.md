@@ -67,6 +67,10 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
   Kakao either (the phone titles it from its members, so the bridge composes a name of its own), and a
   group whose *members* changed may show a stale title until the chat is resynced (`sync-portal` in the
   room).
+* **Someone in an Open Chat room is shown by their real name, or an open-chat nickname shows up in a
+  friend chat** — Open Chat rooms use a separate *open profile*, and the bridge keeps one Matrix ghost per
+  Kakao account, so whichever of the two profiles was read last is the name shown everywhere
+  (`docs/protocol-notes.md` §7b). Kakao separates them per room; the bridge cannot.
 * **An Open Chat room has no name, topic or picture** — that profile is not on the chat: the bridge reads
   it from the room's Open Link with a second call (`docs/protocol-notes.md` §7b). If the room stayed
   unnamed, look for `Kakao did not describe this open chat room` in the log: that call was refused and the
