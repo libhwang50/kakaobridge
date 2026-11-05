@@ -326,13 +326,15 @@ travel next to it, in the attachment:
 ```
 
 A range is `[start, length]`; the client's own model (`com.kakao.talk.chat.richtext.RichTextRange`) calls
-the two numbers `loc` and `length`. Sent with the text `Rich text testing. Bold text. Italic text.
-Strikethrough.  Spoiler.`, those offsets select exactly `Bold text.`, `Strikethrough. ` (the client strikes
-the space after the period too) and `Spoiler.`. Those samples are ASCII, so they do not say whether an index
-counts bytes, characters, or UTF-16 code units; the client is a JVM app and its text APIs count UTF-16,
-which is what `kknet/format.go` assumes, and a range that does not fit the text is dropped rather than
-moved. The app's own model names further styles (`underline`, `highlight`, `color`, `subText`, `linkText`);
-none of those has been seen on the wire, so none of them is read.
+the two numbers `loc` and `length`, and `RichText` carries exactly three lists of them — `bold`, `italic`,
+`strike` — which is what the bridge reads. Spoilers are a separate list of `{loc, len}` objects. Other
+style-shaped names appear in the app's strings (`underline`, `highlight`, `color`, `subText`, `linkText`) but
+not in that model, so there is nothing further measured here. Sent with the text `Rich text testing. Bold
+text. Italic text. Strikethrough.  Spoiler.`, those offsets select exactly `Bold text.`, `Strikethrough. `
+(the client strikes the space after the period too) and `Spoiler.`. Those samples are ASCII, so they do not
+say whether an index counts bytes, characters, or UTF-16 code units; the client is a JVM app and its text
+APIs count UTF-16, which is what `kknet/format.go` assumes, and a range that does not fit the text is
+dropped rather than moved.
 
 **In the app, not yet on the wire here.** In an Open Chat room the message menu also offers reactions and
 "Reply in thread". Neither has been captured on the wire by this bridge, so neither is bridged.

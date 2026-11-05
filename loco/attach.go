@@ -347,9 +347,11 @@ func (r *StyleRange) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// RichText holds the styles Kakao keeps beside a message's text. It reads only what has been seen on the
-// wire. The app's own model names more (underline, highlight, color, subText, linkText); none of those
-// has been observed, and a style nobody has measured is better left out than invented.
+// RichText holds the styles Kakao keeps beside a message's text. The client's own model
+// (com.kakao.talk.chat.richtext.RichText) carries exactly three lists of ranges - bold, italic, strike -
+// and a separate spoiler list, which is what this reads. Other style-shaped names appear in the app's
+// strings (underline, highlight, color, subText, linkText) but not in that model, so they are not invented
+// here.
 type RichText struct {
 	Bold     []StyleRange
 	Italic   []StyleRange
