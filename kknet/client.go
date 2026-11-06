@@ -50,6 +50,13 @@ type Client struct {
 	// a room, so the room a person spoke in is the right place to ask about them.
 	seenIn    map[int64]int64
 	seenChats map[int64]string // chatId -> chat type, from LOGINLIST
+	// friends is the account's contact list, read at most once per connection. A device of the kind this
+	// bridge registers is not granted that list (measured: the endpoint answers {"status":-500}), so the
+	// outcome — names, or the lack of any — is remembered instead of asked again for every person a room
+	// mentions, which would slow down the room whose events are handled one after another.
+	friendsMu   sync.Mutex
+	friends     map[int64]loco.Member
+	friendsRead bool
 	// links maps an Open Link id to the chat that uses it. Only rooms whose CHATINFO has been read are
 	// in here, which is what lets a SYNCLINKUP push find the room it describes.
 	links map[int64]int64
@@ -221,6 +228,8 @@ func (c *Client) Disconnect() {
 	c.rooms = map[int64]*roomData{}
 	c.users = map[int64]loco.Member{}
 	c.seenIn = map[int64]int64{}
+	c.friends = nil
+	c.friendsRead = false
 	c.seenChats = map[int64]string{}
 	c.links = map[int64]int64{}
 	c.mu.Unlock()
@@ -318,8 +327,10 @@ func chatIDOf(key networkid.PortalKey) (int64, error) {
 }
 
 // GetUserInfo fills in a ghost's name and avatar. Names come from room member lists (Kakao sends
-// profiles per room); the friend list is the fallback for a person who is not in any bridged room, and
-// last the bridge asks Kakao about the person in a room where they have spoken (lookupStranger).
+// profiles per room); the friend list is tried for a person who is not in any bridged room, and last the
+// bridge asks Kakao about the person in a room where they have spoken (lookupStranger). For the device
+// this bridge registers, the friend list is not granted at all, so the room lookup is what actually names
+// people there.
 func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
 	uid, err := strconv.ParseInt(string(ghost.ID), 10, 64)
 	if err != nil {
@@ -339,24 +350,11 @@ func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridg
 		return userInfoOf(loco.Member{UserID: uid, Nickname: prof.Nickname,
 			ProfileImageURL: prof.Avatar, StatusMessage: prof.StatusMessage}), nil
 	}
-	fs, err := c.rest().Friends()
-	if err != nil {
-		// A friend list this account cannot give is not a reason to stop: the person may still be
-		// answerable as a member of a room.
-		c.login.Log.Debug().Int64("user_id", uid).Err(err).
-			Msg("The friend list could not be read while naming a person")
-	} else {
-		for _, f := range fs {
-			if f.UserID == uid {
-				mm := loco.Member{UserID: f.UserID, AccountID: f.AccountID, Nickname: f.Nickname,
-					ProfileImageURL: f.Avatar, StatusMessage: f.StatusMessage,
-					Suspended: f.Suspended, Memorial: f.Memorial}
-				c.mu.Lock()
-				c.users[uid] = mm
-				c.mu.Unlock()
-				return userInfoOf(mm), nil
-			}
-		}
+	if mm, ok := c.friendOf(uid); ok {
+		c.mu.Lock()
+		c.users[uid] = mm
+		c.mu.Unlock()
+		return userInfoOf(mm), nil
 	}
 	if m := c.lookupStranger(ctx, uid); m != nil {
 		return userInfoOf(*m), nil
@@ -364,6 +362,37 @@ func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridg
 	c.login.Log.Debug().Int64("user_id", uid).
 		Msg("No room member list, no friend list and no member lookup named this person")
 	return nil, fmt.Errorf("kknet: Kakao has no profile for user %d", uid)
+}
+
+// friendOf looks one person up in the account's friend list, reading that list once per connection
+// instead of once per person. A busy public room has more people than the member list Kakao sends, and a
+// room's events are handled one after another, so asking the gateway each time is work the room pays for.
+//
+// The answer is remembered whether or not it worked. Measured: this device credential is answered
+// {"status":-500} for friends/diff.json under both the android and the win32 agent, so for a bridge that
+// registers a mobile sub-device the friend list is simply not granted, and saying so once is enough. It is
+// forgotten when the connection is, like everything else that described it.
+func (c *Client) friendOf(uid int64) (loco.Member, bool) {
+	c.friendsMu.Lock()
+	defer c.friendsMu.Unlock()
+	if !c.friendsRead {
+		if fs, err := c.rest().Friends(); err != nil {
+			// A friend list this account cannot give is not a reason to stop: the person may still be
+			// answerable as a member of a room.
+			c.login.Log.Debug().Err(err).
+				Msg("The friend list is not available to this device; naming people relies on rooms")
+		} else {
+			c.friends = make(map[int64]loco.Member, len(fs))
+			for _, f := range fs {
+				c.friends[f.UserID] = loco.Member{UserID: f.UserID, AccountID: f.AccountID,
+					Nickname: f.Nickname, ProfileImageURL: f.Avatar,
+					StatusMessage: f.StatusMessage, Suspended: f.Suspended, Memorial: f.Memorial}
+			}
+		}
+		c.friendsRead = true
+	}
+	m, ok := c.friends[uid]
+	return m, ok
 }
 
 // lookupStranger asks Kakao who a person is in a chat this account is in. A member of a large public
