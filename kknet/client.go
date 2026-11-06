@@ -341,22 +341,28 @@ func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridg
 	}
 	fs, err := c.rest().Friends()
 	if err != nil {
-		return nil, err
-	}
-	for _, f := range fs {
-		if f.UserID == uid {
-			mm := loco.Member{UserID: f.UserID, AccountID: f.AccountID, Nickname: f.Nickname,
-				ProfileImageURL: f.Avatar, StatusMessage: f.StatusMessage,
-				Suspended: f.Suspended, Memorial: f.Memorial}
-			c.mu.Lock()
-			c.users[uid] = mm
-			c.mu.Unlock()
-			return userInfoOf(mm), nil
+		// A friend list this account cannot give is not a reason to stop: the person may still be
+		// answerable as a member of a room.
+		c.login.Log.Debug().Int64("user_id", uid).Err(err).
+			Msg("The friend list could not be read while naming a person")
+	} else {
+		for _, f := range fs {
+			if f.UserID == uid {
+				mm := loco.Member{UserID: f.UserID, AccountID: f.AccountID, Nickname: f.Nickname,
+					ProfileImageURL: f.Avatar, StatusMessage: f.StatusMessage,
+					Suspended: f.Suspended, Memorial: f.Memorial}
+				c.mu.Lock()
+				c.users[uid] = mm
+				c.mu.Unlock()
+				return userInfoOf(mm), nil
+			}
 		}
 	}
 	if m := c.lookupStranger(ctx, uid); m != nil {
 		return userInfoOf(*m), nil
 	}
+	c.login.Log.Debug().Int64("user_id", uid).
+		Msg("No room member list, no friend list and no member lookup named this person")
 	return nil, fmt.Errorf("kknet: Kakao has no profile for user %d", uid)
 }
 
@@ -370,6 +376,10 @@ func (c *Client) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridg
 // It is tried last, after the room's own member list and after the friend list, so a real name wins over
 // whatever a room chose to display. The answer is kept for the session; it is dropped with the rest of the
 // connection's caches, which is also how a renamed person is picked up again.
+//
+// One person per request, on purpose: an id the room does not know is not skipped but makes the whole
+// request fail. Measured in a public Open Chat room - one author id alone was answered, that same id
+// paired with an id from another chat was refused outright, and the other id alone was refused too.
 func (c *Client) lookupStranger(ctx context.Context, userID int64) *loco.Member {
 	c.mu.Lock()
 	chatID := c.seenIn[userID]

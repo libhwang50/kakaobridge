@@ -141,12 +141,13 @@ group.
 **`MEMBER` asks who specific people are in one chat**: `chatId` plus `memberIds`, answered with a
 `members` list in no particular order. `GETMEM` lists a room; this names people, which is how the bridge
 gives a name to someone a room's list did not carry — a large public Open Chat room sends only part of its
-list (measured: 1000 of 1976) and the bridge refuses to pass a part off as the whole.
+list (measured twice: 1000 of 1976, and a room of 1486 whose member list stopped at 1000 while its
+`displayMembers` carried 1318) and the bridge refuses to pass a part off as the whole.
 
-The answer is about the room rather than about the person, and that is the part worth knowing. The same
-user id answers with its main profile in a group chat (`nickName`, `profileImageUrl`,
-`fullProfileImageUrl`, `originalProfileImageUrl`, `statusMessage`, `suspended`, `memorial`), and with its
-**open profile** in an Open Chat room:
+The answer is about the room rather than about the person, and that is the part worth knowing. In an
+ordinary chat it spells the profile fields out (`nickName`, `profileImageUrl`, `fullProfileImageUrl`,
+`originalProfileImageUrl`, `statusMessage`, `suspended`, `memorial`); in an Open Chat room the same user id
+answers with the **open profile** that room shows:
 
 ```text
 {"userId":…,"nickName":"an open name",
@@ -157,6 +158,15 @@ so asking about a room is the only way to get the profile that room shows. The b
 the room's own member list and after the friend list — so a real name still wins over what a room chose to
 display, and it remembers which room a person's message came from so it knows what to ask. A person using
 the default avatar answers with empty image fields, which is not a failed lookup.
+
+Two details of that answer are worth knowing, both measured in a public Open Chat room with 1486 members:
+
+* It answers for the **open-profile ids** such rooms use, not only for account ids. A message author there
+  is named by an id like `4983893056747400519`, and asking about it in that room returned that person's
+  open nickname and picture — while the same id is meaningless in another room.
+* An id the room does not know is not skipped: it fails the whole request. The same author id asked alone
+  was answered; asked together with an id belonging to a different chat, both were refused (`-203`), and
+  that other id alone was refused as well. So the bridge asks about one person at a time.
 
 ### 7a. Group chats (`MultiChat`)
 
