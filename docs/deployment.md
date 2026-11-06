@@ -108,7 +108,18 @@ older commit than what is running — which makes a deployed fix look undeployed
 
 mautrix writes the config back on every start unless you pass `--no-update`. A key that is not part of
 the generated example config is dropped from the file on the way out. Keep your own copy of the diff you
-care about, or set the values in a config that you regenerate from the example.
+care about, or set the values in a config that you regenerate from the example. Keys that are part of the
+example — `portal_event_buffer` among them — survive a rewrite, so raising them in the file is safe.
+
+Editing that file in place has one trap: the image runs as `nonroot` (uid and gid 65532), and `docker cp`
+in leaves the file owned by whoever copied it. The bridge then crash-loops with
+`failed to read config: open /data/config.yaml: permission denied`. Put the ownership back with a throwaway
+root container over the same directory:
+
+```bash
+docker run --rm --user 0:0 -v ./kakaobridge/data:/data alpine:latest \
+  chown 65532:65532 /data/config.yaml
+```
 
 ## Credentials, database, and what survives a wipe
 

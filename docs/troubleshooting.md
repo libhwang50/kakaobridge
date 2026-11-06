@@ -12,6 +12,7 @@ ones in `docs/bridgev2-notes.md`.
 | `Duplicate id` while registering | another appservice already uses that `id`. |
 | `fatal error: olm/olm.h: No such file or directory` | build without `-tags goolm`; see `make build`. |
 | linker `disk quota exceeded` | the cgo link step needs room: `GOTMPDIR=/dev/shm make build`. |
+| `failed to read config: open /data/config.yaml: permission denied` (the container restarts over and over) | the config in the volume is not readable by the user the image runs as (`nonroot`, uid and gid 65532). A file put there with `docker cp` keeps the ownership of whoever copied it. Chown it back; the one-line recipe is in `docs/deployment.md`. |
 
 ## Login does not work
 
