@@ -111,10 +111,10 @@ func (c *Connector) Download(ctx context.Context, mediaID networkid.MediaID, par
 	return &mediaproxy.GetMediaResponseURL{URL: target, ExpiresAt: expires}, nil
 }
 
-// clientForChat finds a connected Kakao account that can be asked about this chat. A group room has no
-// single owning account in Matrix, so the bridge asks every account in the portal, and then any other
-// connected account, until one answers; a Kakao chat is only readable by an account that is in it, so a
-// wrong guess costs one refused request.
+// clientForChat picks a connected Kakao account to ask about this chat. A group room has no single
+// owning account in Matrix, so the accounts recorded in that portal are tried first and any other live
+// account after them. Kakao only answers a history read for an account that is in the chat, so a wrong
+// pick surfaces as "Kakao did not return chat N message M" rather than as media from the wrong room.
 func (c *Connector) clientForChat(ctx context.Context, chatID int64) (*Client, error) {
 	var tried []*Client
 	seen := map[*Client]bool{}
