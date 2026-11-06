@@ -23,3 +23,20 @@ func TestStillPreviewItemURLIsDerivedFromTheItemKey(t *testing.T) {
 		}
 	}
 }
+
+// A reaction's item code resolves like a message's inline mini emoji: "1200509_029" is served at
+// 1200509.emoji_029.png (measured: all 114 built-in reaction items answer 200 image/png, 180x180,
+// unsigned and unexpiring; a two-digit index answers 404, so the digits are kept as the code has them).
+func TestAMiniEmojiItemIsAddressedFromItsCode(t *testing.T) {
+	cases := []struct{ id, want string }{
+		{"1200283_027", "https://item.kakaocdn.net/dw/1200283.emoji_027.png"},
+		{"1200509_029", "https://item.kakaocdn.net/dw/1200509.emoji_029.png"},
+		{"1200509", ""},
+		{"_029", ""},
+	}
+	for _, c := range cases {
+		if got := MiniEmojiURL(c.id); got != c.want {
+			t.Errorf("%q: got %q, want %q", c.id, got, c.want)
+		}
+	}
+}

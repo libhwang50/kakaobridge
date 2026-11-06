@@ -231,8 +231,11 @@ func (m *AttachmentMeta) StillPreviewItemURL() string {
 
 // MiniEmojiURL resolves one entry of a text message's `emojis` descriptor: the id <itemCode>_<index>
 // maps to the item key <itemCode>.emoji_<index, three digits>.png. Measured: 1200283_027 gives a
-// 180x180 PNG. Whether the item is animated changes the extension to .webp, which the message does not
-// say, so a caller that needs animation must ask the item store.
+// 180x180 PNG. A reaction's item code is the same shape and resolves the same way - every one of the
+// 114 built-in reaction items, `1200509_001` to `_114`, answers 200 image/png at this address, with no
+// signature and no expiry, and the index must keep its three digits (a two-digit one 404s). Whether the
+// item is animated changes the extension to .webp, which the message does not say, so a caller that needs
+// animation must ask the item store.
 func MiniEmojiURL(id string) string {
 	set, idx, ok := strings.Cut(id, "_")
 	if !ok || set == "" || idx == "" {

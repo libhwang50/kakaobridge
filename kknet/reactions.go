@@ -25,19 +25,32 @@ import (
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 
 	"github.com/libhwang50/kakaobridge/kakao"
+	"github.com/libhwang50/kakaobridge/loco"
 )
 
-// reactionEmoji names the character to show for the reaction items this bridge has watched Kakao's own
-// client draw. Every item the reaction picker offers is a mini emoticon (kind 2), a picture rather than
-// a Unicode character, so a character for any of them is a choice, not a fact: only the ones seen on
-// screen are listed here. The item itself travels with the reaction in reactionExtra either way.
+// reactionEmoji names the character to show for a reaction item. Every item the picker offers is a mini
+// emoticon (kind 2) - a 180x180 picture rather than a Unicode character - so any character here is a
+// stand-in, not a fact. Each entry was checked against the item's own picture, which is reachable from
+// the item code (docs/protocol-notes.md §12): the code "1200509_029" is served at
+// https://item.kakaocdn.net/dw/1200509.emoji_029.png. An item that has not been looked at keeps the name
+// Kakao gives it; the item code travels with the reaction in reactionExtra either way.
 var reactionEmoji = map[string]string{
 	"1200509_029": "❤️", // 사랑
 	"1200509_021": "👍",  // 엄지척
-	"1200509_037": "☑️", // 체크
+	"1200509_037": "☑️", // 체크 - a check inside a filled circle, which no character spells exactly
 	"1200509_001": "😆",  // 웃음
 	"1200509_002": "😲",  // 놀라움
 	"1200509_003": "😢",  // 슬픔
+	"1200509_004": "😍",  // 반했어
+	"1200509_005": "😁",  // 꺄
+	"1200509_008": "🥳",  // 축하해
+	"1200509_022": "👎",  // 엄지내림
+	"1200509_024": "👏",  // 박수
+	"1200509_028": "🫶",  // 손하트
+	"1200509_038": "⭕",  // 동그라미
+	"1200509_039": "❌",  // 엑스
+	"1200509_052": "💡",  // 전구
+	"1200509_062": "⭐",  // 스타
 }
 
 // reactionKey says what to show for one reaction item. For an item the bridge has not seen drawn, the
@@ -159,16 +172,20 @@ func (c *Client) reactionChanged(logID, revision int64, count int) bool {
 
 // reactionExtra says, next to the character shown, which Kakao reaction this actually is. The character
 // is a stand-in for a picture in Kakao's set, so anything that wants to show the real thing, or to send
-// the reaction back, needs the item code and its kind rather than a guess from the glyph. The name is
-// the one Kakao gives the item, and the key is this bridge's own namespace.
+// the reaction back, needs the item and its kind rather than a guess from the glyph. The picture itself
+// is reachable from the item code by the same rule a message's inline mini emoji uses
+// (loco.MiniEmojiURL), and that item CDN path carries no signature and no expiry. The name is the one
+// Kakao gives the item, and the key is this bridge's own namespace.
 func reactionExtra(item kakao.ReactionItem) map[string]any {
-	return map[string]any{
-		"cc.libhwang.kakaobridge.reaction": map[string]any{
-			"item": item.Item,
-			"kind": item.Kind,
-			"name": item.Alt["ko"],
-		},
+	out := map[string]any{
+		"item": item.Item,
+		"kind": item.Kind,
+		"name": item.Alt["ko"],
 	}
+	if url := loco.MiniEmojiURL(item.Item); url != "" {
+		out["image_url"] = url
+	}
+	return map[string]any{"cc.libhwang.kakaobridge.reaction": out}
 }
 
 // queueReactions sends one message's reaction state to Matrix.

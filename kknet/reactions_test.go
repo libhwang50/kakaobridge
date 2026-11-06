@@ -42,6 +42,11 @@ func TestABridgedReactionSaysWhichKakaoItemItIs(t *testing.T) {
 	if raw["item"] != "1200509_029" || raw["kind"] != 2 || raw["name"] != "사랑" {
 		t.Errorf("the reaction described itself as %v", raw)
 	}
+	// The real picture is addressable from the item code, so a client that can draw a custom emoji does
+	// not have to settle for the stand-in character.
+	if raw["image_url"] != "https://item.kakaocdn.net/dw/1200509.emoji_029.png" {
+		t.Errorf("the reaction did not say where its picture is: %v", raw["image_url"])
+	}
 }
 
 // Kakao repeats the whole reaction state of a message every time it is read, and the revision moves

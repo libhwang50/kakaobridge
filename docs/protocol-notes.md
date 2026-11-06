@@ -460,22 +460,41 @@ history:
   in that row, are the only characters this bridge claims to know. For anything past what has been seen
   drawn, it shows the name Kakao gives rather than inventing a face.
 
+**The picture is readable from the item code.** A reaction item is addressed the same way a message's
+inline mini emoji is (`loco.MiniEmojiURL`, §11): `1200509_029` is served at
+`https://item.kakaocdn.net/dw/1200509.emoji_029.png`. Measured across the whole built-in set: all 114
+items answer `200 image/png`, 180×180, with no signature and no expiry, and the `.thum_` variant exists
+too. A two-digit index 404s, so the three digits in the item code are the spelling. Looking at the
+pictures is also how the characters in `kknet/reactions.go` were chosen — `_029` really is a heart, `_021`
+a thumbs up, `_037` a check inside a filled circle (which no character spells exactly), and so on.
+
 **What the bridge puts in Matrix.** The reaction's `m.relates_to.key` is the character, its `EmojiID` in
 the bridge's own table is the Kakao item code, and the Matrix event carries
 
 ```json
-{"cc.libhwang.kakaobridge.reaction":{"item":"1200509_029","kind":2,"name":"사랑"}}
+{"cc.libhwang.kakaobridge.reaction":{"item":"1200509_029","kind":2,"name":"사랑",
+ "image_url":"https://item.kakaocdn.net/dw/1200509.emoji_029.png"}}
 ```
 
-so the item behind the stand-in character is stated rather than left to be guessed.
+so the item behind the stand-in character is stated rather than left to be guessed, and a client that can
+draw a custom emoji has somewhere to get the real one from.
 
-**Showing the real mini emoticon in Matrix — not implemented.** Matrix has a convention for this: the
-annotation key is an `mxc://` URI of an image uploaded as a custom emoji, which is how mautrix-discord
-bridges Discord custom emoji (behind a `custom_emoji_reactions` option, falling back to the text
-`:shortcode:` as the key otherwise — the same shape as this bridge's name fallback). Doing it for Kakao
-needs the image bytes for a mini-emoticon item, which has not been read: sticker and emote items have
-their own asset path (§11), and whether `1200509_*` mini emoticons use the same one is unmeasured. When
-it is, nothing else in the mapping has to change: the item code is already the reaction's identity.
+**Keying the reaction by the picture — not done yet.** Matrix's convention is to make the annotation key
+the `mxc://` URI of an image uploaded as a custom emoji; mautrix-discord does that, and behind
+`bridge.custom_emoji_reactions: false` falls back to a text key `:shortcode:` — the same shape as this
+bridge's name fallback. The bytes are no longer the obstacle; what is left is uploading each item once and
+choosing whether to key by `mxc://` (which clients without custom-emoji support show as an ugly URI string)
+or to keep the character and put the image beside it. Nothing else in the mapping would change: the item
+code is already the reaction's identity.
+
+**Which reactions are which kind of purchasable.** The client has a second axis, `ProductTier`:
+`EMBEDDED`, `BASIC`, `PLUS`, `UNKNOWN`, and the picker's `plusRevision`/`plusActive` parameters gate the
+last. Reading of the account holder, consistent with that naming: the set the picker's *Basic* section
+offers (the 114 items above) is `EMBEDDED` — shipped with the client, mostly mappable to Unicode emoji,
+usable only as a reaction and not in the composer; `BASIC` is the free mini emoticon set an account may
+use ("Kakao Friends Basic Mini Face 1" and the rest of what that account has); `PLUS` is what was bought
+in the in-app store. Measured here: only the basic section of the picker, all of it kind 2. The other
+tiers, and what their item codes look like on the wire, have not been read.
 
 **Nothing is pushed.** Two reactions made from the phone produced no frame on this bridge's LOCO session,
 and 45 minutes watching a public Open Chat room that has reactions in it produced no reaction frame
