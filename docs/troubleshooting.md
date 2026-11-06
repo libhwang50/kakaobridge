@@ -114,6 +114,15 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
 * **A friend's room has no avatar** — a Kakao account with the default avatar has no profile image URL.
   That is not a failed fetch.
 
+## A room's queue is full
+
+`Portal event channel is full, queue will block` means one room produced events faster than the bridge could
+put them into Matrix. That is normal for a public Open Chat room with a thousand members, where every message
+and every read receipt is an event. Nothing is dropped: the bridge waits, and keeps waiting every five
+seconds with `Portal event channel is still full` if the room stays busy. Raise `bridge.portal_event_buffer`
+(a few hundred) if it happens often, and check whether the bridge is doing needless work per event — it reads
+the friend list once per connection and asks Kakao about a stranger once per person, not once per message.
+
 ## Test failures
 
 Tests that want a file under `loco/testdata/` or `testdata/` skip when it is missing: those captures are

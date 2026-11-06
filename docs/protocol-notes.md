@@ -159,6 +159,13 @@ the room's own member list and after the friend list — so a real name still wi
 display, and it remembers which room a person's message came from so it knows what to ask. A person using
 the default avatar answers with empty image fields, which is not a failed lookup.
 
+The friend list sounds like a good fallback and is not one for this kind of device: `/{agent}/friends/diff.json`
+answers `{"status":-500}` for the credential this bridge registers, under the `android` and the `win32`
+agent alike. A mobile sub-device is apparently not granted contacts. So the bridge reads it once per
+connection, remembers that there is nothing there, and relies on rooms — the member list and this request —
+for names. Asking it again for every person a room mentions would only slow that room down: its events are
+handled one after another.
+
 Two details of that answer are worth knowing, both measured in a public Open Chat room with 1486 members:
 
 * It answers for the **open-profile ids** such rooms use, not only for account ids. A message author there

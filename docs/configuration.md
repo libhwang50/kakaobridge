@@ -81,6 +81,7 @@ From the generated example config, the defaults that matter for this bridge:
 | `relay.*` | empty | relay mode: a Matrix user bridges a Kakao chat without a Kakao account of their own. |
 | `permissions.*` | level defaults | who may run which command. |
 | `deduplicate_matrix_messages` | `false` | leave this off; the bridge already deduplicates Kakao echoes by `logId`. |
+| `portal_event_buffer` | `64` | how many of a room's events may wait while that room's events are handled one after another. A busy public Open Chat room can outrun the default; the log then says `Portal event channel is full, queue will block`. A few hundred is cheap and enough. |
 
 ## Encryption, provisioning, logging
 
