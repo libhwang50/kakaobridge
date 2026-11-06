@@ -34,6 +34,7 @@ not constants.
 | `device.os_version` | `16` for android, `10.0.19045` for win32 | the OS string the client reports. |
 | `device.x_vc` | the Windows client's value | a client build constant, not a secret; `passcodeLogin/generate` needs it. |
 | `tokens_file` + `tokens_mxid` | `""` | import an already-registered device instead of the passcode flow. Kakao allows one mobile sub-device per account, so after wiping the database this is how you keep the identity — the JSON is what `cmd/locoauth` writes, and `tokens_mxid` is the Matrix user who owns it. If logins already exist in the database, the import is ignored. |
+| `reaction_images` | `false` | how a Kakao reaction looks on Matrix. A Kakao reaction is a mini emoticon — a picture, not a character — so one of the two is a stand-in. Off: the nearest Unicode character, chosen by looking at each item's own picture; every client shows that. On: the item's picture, uploaded once and used as the reaction key, which is how mautrix-discord keys a custom emoji — a client without custom-emoji support then shows the `mxc://` string. Either way the reaction's identity is the Kakao item code, so switching later does not mix up who reacted to what; old reactions of the other form may stay until they are removed on Kakao's side. |
 
 Where the credentials end up: a completed login stores its account, agent and password in the bridge
 database, keyed by your Matrix user, and renews itself from there on the next start. Nothing Kakao
@@ -82,6 +83,47 @@ From the generated example config, the defaults that matter for this bridge:
 | `permissions.*` | level defaults | who may run which command. |
 | `deduplicate_matrix_messages` | `false` | leave this off; the bridge already deduplicates Kakao echoes by `logId`. |
 | `portal_event_buffer` | `64` | how many of a room's events may wait while that room's events are handled one after another. A busy public Open Chat room can outrun the default; the log then says `Portal event channel is full, queue will block`. A few hundred is cheap and enough. |
+
+## `direct_media:` — media that stays at Kakao
+
+Off by default, which means the bridge copies every photo, video, voice note and file into the
+homeserver's media store. With it on, those messages instead carry an `mxc://` URI **the bridge serves
+itself**, and the bytes are fetched from Kakao when a client asks for them:
+
+```yaml
+direct_media:
+    enabled: true
+    # A name for this media server; it becomes the server part of the mxc:// URI. Keep it stable:
+    # it is already written into past events.
+    server_name: kakao-media.example.com
+    # A seed for the signing key. Empty generates one and saves it in the database; keeping your own
+    # means the URIs in old events still work after a database restore.
+    server_key: ""
+    media_id_prefix: ""
+```
+
+This is mautrix's own mechanism, described for operators at
+[docs.mau.fi/bridges/go/discord/direct-media.html](https://docs.mau.fi/bridges/go/discord/direct-media.html);
+the same keys work here because the bridge is mautrix. What is Kakao-specific is what the bridge puts in
+the id and what it does when one is fetched (`kknet/directmedia.go`):
+
+* The id names **the message**, not Kakao's address for it, because that address is signed for a few
+  days (`docs/protocol-notes.md` §8). Every request re-reads the message and gets a fresh one.
+* The answer is a redirect to the signed URL, with a cache lifetime that ends shortly before Kakao's own
+  signature does — so a client that asks twice in a day crosses the network to Kakao once, and the
+  homeserver stores no media bytes for these messages.
+* **What stays copied**: stickers, emotes and mini emoticons. Their bytes have an encrypted header that
+  has to be decrypted, and some of them are not a format a client can open, so the bridge must hold them
+  to decide what to send (§11). A message that has no media left to address stays a text placeholder as
+  before.
+* The media proxy shares the appservice HTTP listener (`appservice.port`, `29315` in the shipped
+  compose), so a reverse proxy in front of that port is all the public setup needs — e.g. a name that
+  resolves publicly pointing at `host:29315`. The homeserver itself does not need to reach that public
+  name; it fetches the media the way it reaches the appservice.
+
+The trade is honesty about where the media lives: with direct media, a message whose media Kakao no
+longer serves shows an error at view time rather than at bridging time, and the bridge stays the only
+place that can resolve its address. With it off, the bytes are yours even after Kakao deletes them.
 
 ## Encryption, provisioning, logging
 

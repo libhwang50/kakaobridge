@@ -91,6 +91,25 @@ Two traps in the generated file:
 * The `id` must not collide with another appservice on the homeserver (`Duplicate id` on Tuwunel), and
   transaction delivery is `PUT /_matrix/app/v1/transactions/{txn}`.
 
+## Serving media yourself (optional)
+
+`direct_media: enabled: true` makes the bridge serve the media of photo, video, voice-note and file
+messages itself instead of copying it into the homeserver (`docs/configuration.md` has the config and the
+trade). The media proxy is mounted on the **same HTTP listener as the appservice** — port `29315` in the
+compose above — so no extra service is needed: a public HTTPS reverse proxy in front of that port is the
+whole setup. The author's own bridge points `kakao-media.libhwang.cc` at `29315` on the same host and
+sets `direct_media.server_name` to that name.
+
+Two things to get right once:
+
+* `server_name` is written into the `mxc://` URI of every media event bridged from then on, so choose it
+  before turning the feature on; changing it later does not change the events already sent.
+* `server_key` signs the media id. Leave it empty to have one generated and stored in the database, or set
+  it yourself if you want old URIs to survive a database restore.
+
+Nothing about the appservice registration changes. The homeserver may fetch that media through its own
+docker network if you give it a name it can resolve; the public name is for clients.
+
 ## Deploying updates
 
 Keep the deployment checkout a **git checkout** and update it with git:

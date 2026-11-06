@@ -71,6 +71,12 @@ type Client struct {
 	// Matrix already has.
 	reactions  map[int64]reactionState
 	reactionAt map[int64]time.Time
+	// reactionImages holds the mxc:// URI of each Kakao reaction picture the bridge has uploaded, so a
+	// room with the same reaction on a hundred messages costs one upload (see reactionImage).
+	reactionImages map[string]string
+	// directMediaWarned keeps a direct-media failure to one warning per session instead of one per media
+	// message; every such message still bridges, by copying the media as before.
+	directMediaWarned bool
 }
 
 var (

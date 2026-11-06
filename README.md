@@ -24,13 +24,14 @@ mobile sub-device per account**, so one Kakao account can be bridged by one brid
 | photos, stickers | ✅ (animated stickers stay animated) | ✅ JPEG/PNG/GIF/WebP |
 | video, files | ✅ | ✅ mp4 fully; webm/mkv/mov are re-encoded by Kakao; files depend on Kakao's own extension list |
 | voice notes | ✅ | ❌ not implemented |
+| where the media bytes live | ✅ copied into your homeserver by default; with `direct_media` enabled a photo, video, voice note or file instead keeps an address at Kakao and is fetched from there when someone views it, so nothing is stored twice and a signed URL expiring stops mattering (stickers stay copied: their bytes have to be decrypted before a client can see them) | — |
 | captions | — | ⚠️ Kakao has no caption on a photo, so a Matrix caption arrives as its own message |
 | read receipts | ✅ (`m.read`) | ❌ not implemented |
 | replies | ✅ (`m.in_reply_to` — Kakao keeps the quote out of the text and points at the message it quotes) | ❌ not implemented |
 | edits | ✅ (an edit of that same message; Kakao pushes the whole new text) | ❌ not implemented |
 | deletions | ⚠️ applied when that chat's history is read again — Kakao sends no push for a delete | ❌ not implemented |
 | text styles (bold, italic, strikethrough, spoilers) | ✅ (Kakao keeps them as ranges beside the plain text) | ✅ the marks in the message's HTML are read and sent as those ranges, so Markdown typed in a Matrix client shows up styled in Kakao |
-| reactions | ✅ read from Kakao, including who reacted — they appear when the bridge next reads that room, because Kakao sends no push for a reaction. Kakao's reactions are mini emoticons, so the character shown is a stand-in and the item behind it travels with the event | ❌ not implemented (Kakao's write call has not been measured) |
+| reactions | ✅ read from Kakao, including who reacted — they appear when the bridge next reads that room, because Kakao sends no push for a reaction. Kakao's reactions are mini emoticons, so what is shown is a stand-in by default: the nearest character, with the item behind it travelling with the event. With `network.reaction_images: true` the item's own picture is used as the reaction instead | ❌ not implemented (Kakao's write call has not been measured) |
 | history | ✅ the chat list and its recent messages are bridged on login | — |
 | rooms | 1:1 chats, the self-memo chat, **group chats** (Regular and Team: the name and picture the members gave them, and for a Team Chat the intro the host wrote, which becomes the room topic), **Open Chat rooms** (name, picture, and the room's intro as the topic — Kakao keeps those on the room's Open Link rather than on the chat, and the bridge reads them) | ⚠️ creating a Kakao chat from Matrix is not implemented |
 | group joins and leaves | ✅ as room membership (Kakao sends them as a notice in the reader's language, so the notice text is not bridged) | ⚠️ a Matrix join or leave is not announced in Kakao |

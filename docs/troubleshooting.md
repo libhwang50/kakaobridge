@@ -117,12 +117,39 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
   never bridged has nothing to attach to and is skipped. Kakao's reactions are mini emoticons rather than
   emoji, so the character shown is a stand-in — chosen from what Kakao's own client draws, and a reaction
   the bridge has not seen drawn keeps the Korean name Kakao gives it; each event names the item behind it
-  under `cc.libhwang.kakaobridge.reaction` (`docs/protocol-notes.md` §12). Reacting in Matrix does nothing
+  under `cc.libhwang.kakaobridge.reaction` (`docs/protocol-notes.md` §12). Set
+  `network.reaction_images: true` to show Kakao's own picture instead of a character; a picture the bridge
+  cannot fetch falls back to the character with a warning, and a client that cannot draw custom emoji shows
+  the `mxc://` string where the picture would be. Reacting in Matrix does nothing
   in Kakao yet — the write call has not been measured, so a Matrix reaction is refused with
   `Reactions are not supported`.
 * **No space, just rooms** — `bridge.personal_filtering_spaces: true`.
 * **A friend's room has no avatar** — a Kakao account with the default avatar has no profile image URL.
   That is not a failed fetch.
+
+## Media asked from Kakao
+
+With `direct_media` on, a photo, video, voice note or file is not stored on the homeserver: its event
+names the Kakao message, and the bridge resolves that when the media is fetched. That changes what a
+problem looks like.
+
+* **Media is fine for a while and then shows an error** — the bridge is the only thing that can resolve
+  the address, so check the log at the moment of the failure, not at bridging time. `no connected Kakao
+  account can be asked about chat N` means no Kakao session was up (the account logged out or is
+  reconnecting); it works again once it is. `Kakao did not return chat N message M` means Kakao no longer
+  serves that message to this account — deleted, or the account left the room.
+* **`… copying media to the homeserver instead`** — the bridge could not make a direct address, so it went
+  back to storing the bytes. Said once per session; the media itself is fine.
+* **Stickers and emotes are still copied** — deliberate. Their bytes have an encrypted header and some are
+  not a format a client can open, so the bridge must hold them to decide what to send
+  (`docs/protocol-notes.md` §11).
+* **The public media URL 404s** — the media proxy shares the appservice listener, so the reverse proxy in
+  front of it must pass the path through unchanged (`/_matrix/media/v3/download/…`). Changing
+  `direct_media.server_name` does not change the URIs already written into old events, which is why it is
+  a value to set once.
+
+With `direct_media` off (the default), media is copied at bridging time, and a photo that Kakao will no
+longer serve then is unrecoverable — see `Media unavailable` in the section above.
 
 ## A room's queue is full
 

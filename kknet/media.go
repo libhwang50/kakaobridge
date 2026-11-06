@@ -10,15 +10,18 @@ package kknet
 // Kakao's URL expires within days, which is why the fetch happens while the event is being bridged
 // and not later.
 //
-// Media *from* Matrix is a different job (Kakao wants the bytes uploaded to its DNA storage first,
-// then a WRITEMEDIA commit; that path is documented in docs/protocol-notes.md §9-§10 but not
-// wired up), and it will also need GetCapabilities to declare file support - today it does not, which
-// is correct for what the bridge can actually do.
+// With direct media enabled in the config, signed media instead keeps an address at Kakao and never
+// enters the homeserver's media store; the address is re-read when a client asks for it, so the expiry
+// stops being a problem (see directmedia.go). Item assets still take the path above.
+//
+// Media *from* Matrix is a different job: Kakao wants the bytes uploaded to its DNA storage first, then
+// a WRITEMEDIA commit (docs/protocol-notes.md §9-§10, implemented in media_out.go).
 
 import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,6 +69,9 @@ func (c *Client) convertChatLog(ctx context.Context, portal *bridgev2.Portal, in
 		return &bridgev2.ConvertedMessage{Parts: []*bridgev2.ConvertedMessagePart{textPartOf(cl)}}, nil
 	}
 	if url := meta.DownloadURL(); url != "" {
+		if part, ok := c.directMediaPart(ctx, cl, meta); ok {
+			return &bridgev2.ConvertedMessage{Parts: []*bridgev2.ConvertedMessagePart{part}}, nil
+		}
 		name := meta.FileName()
 		data, mime, err := c.downloadMedia(ctx, meta)
 		previewOf := ""
@@ -140,6 +146,55 @@ func (c *Client) convertChatLog(ctx context.Context, portal *bridgev2.Portal, in
 	return &bridgev2.ConvertedMessage{Parts: []*bridgev2.ConvertedMessagePart{
 		mediaFallbackPart(cl, meta, meta.FileName()),
 	}}, nil
+}
+
+// directMediaPart addresses an attachment at Kakao instead of copying it to the homeserver. Only signed
+// DNA media qualifies: an item asset has to be looked at before anything can be shown (see
+// directmedia.go), so it keeps the upload path.
+//
+// What is not known here is what the bytes are. The mime type comes from Kakao's own `mt` field when it
+// has one and from the file name otherwise, which is the same rule the upload path falls back to; width,
+// height, size and duration are what Kakao stated about the attachment rather than what a decoder here
+// measured. A wrong guess is visible but not fatal: the media proxy re-reads the message on every
+// request, so a media that is there will be served.
+func (c *Client) directMediaPart(ctx context.Context, cl loco.ChatLog, meta *loco.AttachmentMeta) (*bridgev2.ConvertedMessagePart, bool) {
+	if !c.conn.useDirectMedia() || !directMediaEligible(meta) {
+		return nil, false
+	}
+	mxc, err := c.login.Bridge.Matrix.GenerateContentURI(ctx, messageMediaID(cl.ChatID, cl.LogID))
+	if err != nil {
+		if !errors.Is(err, bridgev2.ErrDirectMediaNotEnabled) && c.firstDirectMediaFailure() {
+			c.login.Log.Warn().Err(err).Msg("Kakao media cannot be addressed directly; copying media to the homeserver instead")
+		}
+		return nil, false
+	}
+	name := meta.FileName()
+	mime := meta.MIME
+	if mime == "" {
+		mime = guessMime(name)
+	}
+	part := &bridgev2.ConvertedMessagePart{
+		Type: event.EventMessage,
+		Content: &event.MessageEventContent{
+			MsgType:  msgTypeFor(cl.Type, mime),
+			Body:     descriptionFor(cl, meta, name, ""),
+			FileName: name,
+			URL:      mxc,
+			Info: &event.FileInfo{
+				MimeType:   mime,
+				Width:      meta.Width,
+				Height:     meta.Height,
+				Size:       int(meta.Size),
+				Duration:   meta.DurationMS(cl.Type),
+				IsAnimated: loco.IsAnimatedMessageType(cl.Type),
+				Extra:      stillPreviewExtra(itemExtra(meta), ""),
+			},
+		},
+	}
+	if loco.IsStickerMessageType(cl.Type) {
+		makeSticker(part)
+	}
+	return part, true
 }
 
 // carryAsMedia decides whether a message with an attachment becomes Matrix media or stays text.

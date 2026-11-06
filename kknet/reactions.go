@@ -11,12 +11,16 @@ package kknet
 // Kakao's answer is a per-message state - which items, how many, and who - so it is sent to
 // bridgev2 as one ReactionSync per message, which turns the difference into Matrix annotations. The
 // Kakao item id is used as the Matrix EmojiID, so adding and removing a reaction on Kakao's side is
-// tracked by the identifier rather than by the character shown.
+// tracked by the identifier rather than by the character shown. What a client is shown is a separate
+// choice, `network.reaction_images`, because a Kakao reaction is a picture and not a character.
 
 import (
 	"context"
+	"fmt"
+	"path"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -188,6 +192,67 @@ func reactionExtra(item kakao.ReactionItem) map[string]any {
 	return map[string]any{"cc.libhwang.kakaobridge.reaction": out}
 }
 
+// reactionKeyFor chooses what a Matrix client shows for a Kakao reaction item. The identity of the
+// reaction is its item code, which travels as the EmojiID in the bridge's own table either way, so this
+// only picks a display form: the closest Unicode character, or the item's own picture keyed by its
+// mxc:// URI as mautrix-discord keys a custom emoji (network.ReactionImages). A picture the bridge
+// cannot fetch is not a reason to lose the reaction, so that case falls back to the character.
+//
+// What goes back to Kakao can never depend on this choice: a Matrix reaction is read back through the
+// item code stored as its EmojiID, so the same reaction means the same item however it was shown.
+func (c *Client) reactionKeyFor(ctx context.Context, item kakao.ReactionItem) string {
+	if c.conn.cfg.ReactionImages {
+		if mxc := c.reactionImage(ctx, item.Item); mxc != "" {
+			return mxc
+		}
+	}
+	return reactionKey(item)
+}
+
+// reactionImage uploads one Kakao reaction picture to the homeserver and remembers its URI for the rest
+// of the run, so a room with the same reaction on a hundred messages costs one upload. The picture is a
+// 180x180 PNG on Kakao's item CDN with no signature and no expiry (docs/protocol-notes.md §12), so it
+// can be fetched whenever a reaction turns up rather than prepared in advance. Only the memory is
+// cached: at most 114 items exist in the set Kakao offers here, a few kilobytes each, so a restart
+// re-uploading them is cheaper than a cache that has to be invalidated when Kakao changes one.
+func (c *Client) reactionImage(ctx context.Context, item string) string {
+	if item == "" {
+		return ""
+	}
+	c.mu.Lock()
+	cached := c.reactionImages[item]
+	c.mu.Unlock()
+	if cached != "" {
+		return cached
+	}
+	url := loco.MiniEmojiURL(item)
+	if url == "" {
+		return ""
+	}
+	data, mime, err := c.fetchBytes(ctx, url)
+	if err == nil && !strings.HasPrefix(mime, "image/") {
+		err = fmt.Errorf("Kakao served %s as %s, not an image", item, mime)
+	}
+	if err != nil {
+		c.login.Log.Warn().Err(err).Str("item", item).
+			Msg("Could not fetch a Kakao reaction picture; using the nearest character instead")
+		return ""
+	}
+	mxc, _, err := c.login.Bridge.Bot.UploadMedia(ctx, "", data, path.Base(url), mime)
+	if err != nil {
+		c.login.Log.Warn().Err(err).Str("item", item).
+			Msg("Could not upload a Kakao reaction picture; using the nearest character instead")
+		return ""
+	}
+	c.mu.Lock()
+	if c.reactionImages == nil {
+		c.reactionImages = map[string]string{}
+	}
+	c.reactionImages[item] = string(mxc)
+	c.mu.Unlock()
+	return string(mxc)
+}
+
 // queueReactions sends one message's reaction state to Matrix.
 func (c *Client) queueReactions(ctx context.Context, log zerolog.Logger, chatID int64, chatType string,
 	meta kakao.MessageReactions, people []kakao.Reactor) {
@@ -197,7 +262,7 @@ func (c *Client) queueReactions(ctx context.Context, log zerolog.Logger, chatID 
 		HasAllUsers: true,
 	}
 	for _, react := range people {
-		key := reactionKey(react.ReactionItem)
+		key := c.reactionKeyFor(ctx, react.ReactionItem)
 		if key == "" {
 			log.Debug().Str("item", react.Item).Int("kind", react.Kind).
 				Msg("A Kakao reaction has no character this bridge knows")

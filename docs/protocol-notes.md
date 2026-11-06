@@ -316,6 +316,15 @@ attachment is a JSON blob whose keys are abbreviations (`rsc`, `hfac`, `cs`, `na
 * the numeric `attachType` values are what the client uses to choose a renderer; `attach.go` maps the
   ones this bridge converts and refuses the rest rather than guessing.
 
+**The signature is why a media address names the message, not the URL.** Reading a history page returns a
+signature that is fresh *at that moment*, with `expire` a few days ahead; the same call a week later
+returns a different signature for the same file. So anything that wants to point at a Kakao attachment
+later has to name the chat and the log id and ask again, which is what direct media does
+(`kknet/directmedia.go`, `docs/configuration.md`): the media proxy answers such a request by re-reading
+the message and redirecting to the address Kakao just gave it, with a cache lifetime that ends before
+Kakao's own signature does. Item assets are the exception and stay copied: their address does not expire
+(§11) but their bytes are not directly viewable.
+
 ### 8a. Editing, deleting, quoting and styling a message
 
 All four were measured on the bridge's own device, with a second LOCO session listening while the change
@@ -479,13 +488,12 @@ the bridge's own table is the Kakao item code, and the Matrix event carries
 so the item behind the stand-in character is stated rather than left to be guessed, and a client that can
 draw a custom emoji has somewhere to get the real one from.
 
-**Keying the reaction by the picture — not done yet.** Matrix's convention is to make the annotation key
-the `mxc://` URI of an image uploaded as a custom emoji; mautrix-discord does that, and behind
-`bridge.custom_emoji_reactions: false` falls back to a text key `:shortcode:` — the same shape as this
-bridge's name fallback. The bytes are no longer the obstacle; what is left is uploading each item once and
-choosing whether to key by `mxc://` (which clients without custom-emoji support show as an ugly URI string)
-or to keep the character and put the image beside it. Nothing else in the mapping would change: the item
-code is already the reaction's identity.
+**Keying the reaction by its picture.** `network.reaction_images` chooses the display form, and both
+keep the item code as the identity. Off, the key is the character. On, the item's PNG is fetched from the
+item CDN, uploaded once per item, and the key is its `mxc://` URI — the way mautrix-discord keys a custom
+emoji; behind its `custom_emoji_reactions: false` that bridge falls back to a text key `:shortcode:`,
+which is the same reason this bridge falls back to the character. A client that cannot draw a custom
+emoji shows the URI as a string, which is why the picture is not the default.
 
 **Which reactions are which kind of purchasable.** The client has a second axis, `ProductTier`:
 `EMBEDDED`, `BASIC`, `PLUS`, `UNKNOWN`, and the picker's `plusRevision`/`plusActive` parameters gate the

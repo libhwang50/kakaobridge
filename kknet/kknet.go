@@ -83,6 +83,18 @@ type Config struct {
 	// The file is the JSON our own tools write (see docs/protocol-notes.md §4).
 	TokensFile string    `yaml:"tokens_file"`
 	TokensMXID id.UserID `yaml:"tokens_mxid"`
+
+	// ReactionImages decides what a Kakao reaction looks like on Matrix. A Kakao reaction is a mini
+	// emoticon, a picture rather than a character, and both spellings below carry its item code as the
+	// identity, so this only changes what a client draws.
+	//
+	// false (the default) uses the closest Unicode character, taken from a table built by looking at each
+	// item's own picture. A client that knows nothing about custom emoji shows that.
+	// true fetches the item's picture from Kakao's item CDN, uploads it once, and keys the reaction by its
+	// mxc:// URI, which is how mautrix-discord keys a custom emoji. A client that cannot draw a custom
+	// emoji then shows the URI as a string, which is why this is a choice rather than a default.
+	// See docs/protocol-notes.md §12.
+	ReactionImages bool `yaml:"reaction_images"`
 }
 
 // DeviceConfig names the device Kakao sees. These strings are what the account's device list shows,
@@ -274,6 +286,10 @@ type Connector struct {
 	// session uploads it, and the network descriptor is read from wherever bridgev2 builds a space.
 	mu   sync.Mutex
 	logo id.ContentURIString
+
+	// directMedia is set by the framework before Start when the config turns direct media on; from that
+	// point on GenerateContentURI returns URIs this bridge can serve itself (see directmedia.go).
+	directMedia bool
 }
 
 var _ bridgev2.NetworkConnector = (*Connector)(nil)
