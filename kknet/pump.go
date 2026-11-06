@@ -522,6 +522,9 @@ func (c *Client) backfillChat(ctx context.Context, chatID int64, chatType string
 			ChatID:   chatID,
 			MinLogID: logs[0].LogID,
 			MaxLogID: logs[len(logs)-1].LogID,
+			// The gateway needs a limit and will not answer without one; the page itself is the
+			// sensible bound here.
+			Limit: len(logs),
 		})
 		last := logs[len(logs)-1].LogID
 		if eof || last <= since {

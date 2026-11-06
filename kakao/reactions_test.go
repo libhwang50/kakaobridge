@@ -61,8 +61,9 @@ func TestReactionsOfAMessagesAreCountedAndOursAreMarked(t *testing.T) {
 	if len(metas) != 3 {
 		t.Fatalf("got %d messages with metas, wanted 3", len(metas))
 	}
-	if asked.order != "asc" || asked.limit != "" {
-		t.Errorf("asked order=%s limit=%s, wanted the whole range oldest first", asked.order, asked.limit)
+	// The gateway refuses this call without a limit (measured), so a page that names none gets a default.
+	if asked.order != "asc" || asked.limit != "100" {
+		t.Errorf("asked order=%s limit=%s, wanted the range oldest first with a limit named", asked.order, asked.limit)
 	}
 	if _, err := New(Auth{Token: "t", DeviceID: "d"}).RxLogMetas(context.Background(), RxMetaPage{
 		ChatID: 482943465622166, MinLogID: 3900000000000000000, MaxLogID: 3999999999999999999,

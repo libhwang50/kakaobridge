@@ -83,7 +83,8 @@ func (c *Client) lookForReactions(ctx context.Context, log zerolog.Logger, page 
 	rest := c.rest()
 	metas, err := rest.RxLogMetas(ctx, page)
 	if err != nil {
-		log.Debug().Err(err).Int64("chat_id", chatID).
+		log.Debug().Err(err).Int64("chat_id", chatID).Int64("min_log_id", page.MinLogID).
+			Int64("max_log_id", page.MaxLogID).Int("limit", page.Limit).
 			Msg("Kakao would not say which messages have reactions")
 		return 0
 	}

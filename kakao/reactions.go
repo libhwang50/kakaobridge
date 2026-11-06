@@ -11,7 +11,8 @@ package kakao
 //
 // The first says which messages inside a log-id range carry reactions and how many of each kind, the
 // second says who put them there. `linkId` is left out for an ordinary chat and is required for an
-// Open Chat room: the same call without it answers {"status":-400} there.
+// Open Chat room: the same call without it answers {"status":-400} there. `limit` is not optional on
+// the range call: the same range without it answers {"status":-500}.
 //
 // Nothing here writes. The write call (chat/rx/do) is on this gateway too, but its body has not been
 // measured, so the bridge does not guess it and does not react on Kakao's behalf yet.
@@ -83,7 +84,7 @@ type Reactor struct {
 
 // RxMetaPage names the messages whose reactions to ask about. The bounds are log ids, which is what lets
 // one call cover one page of history. NewestFirst with a Limit is how a live room is asked for its most
-// recently changed states instead of its oldest; a zero Limit leaves the answer's size to the gateway.
+// recently changed states instead of its oldest.
 type RxMetaPage struct {
 	ChatID      int64
 	MinLogID    int64
@@ -92,20 +93,27 @@ type RxMetaPage struct {
 	Limit       int
 }
 
+// defaultMetaLimit is used when a page names no limit, because the gateway refuses the call without one:
+// the same range with limit=50 answers, and without it answers {"status":-500}. A thousand is accepted,
+// so the number is a working bound rather than a server maximum.
+const defaultMetaLimit = 100
+
 // RxLogMetas reads the reaction state of every message in that range.
 func (c *Client) RxLogMetas(ctx context.Context, page RxMetaPage) ([]MessageReactions, error) {
 	order := "asc"
 	if page.NewestFirst {
 		order = "desc"
 	}
+	limit := page.Limit
+	if limit <= 0 {
+		limit = defaultMetaLimit
+	}
 	q := url.Values{
 		"chatId":   {strconv.FormatInt(page.ChatID, 10)},
 		"minLogId": {strconv.FormatInt(page.MinLogID, 10)},
 		"maxLogId": {strconv.FormatInt(page.MaxLogID, 10)},
 		"order":    {order},
-	}
-	if page.Limit > 0 {
-		q.Set("limit", strconv.Itoa(page.Limit))
+		"limit":    {strconv.Itoa(limit)},
 	}
 	var out struct {
 		LogMetas []logMetaWire `json:"logmetas"`

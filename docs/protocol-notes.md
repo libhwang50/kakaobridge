@@ -418,7 +418,7 @@ A reaction is not part of the chat log and is not pushed over LOCO. It lives on 
 next to the media API, keyed by the message's log id, and only two reads are measured:
 
 ```text
-GET /emoticon/chat/rx/logmetas?chatId=&minLogId=&maxLogId=&order=asc
+GET /emoticon/chat/rx/logmetas?chatId=&minLogId=&maxLogId=&order=asc&limit=100
 GET /emoticon/chat/rx/log-details?chatId=[&linkId=]&logId=
 ```
 
@@ -432,6 +432,9 @@ history:
  "hasNext":false,"order":"ASC","status":0}
 ```
 
+* `limit` is **not optional**: the same range without it answers `{"status":-500}`. 50, 100, 500 and 1000
+  were each accepted and returned that many entries, so the number is a working bound rather than a
+  server maximum — and a busy Open Chat room really does have a thousand messages with reactions in it.
 * `content.rx` is that message's state: which item, and how many people chose it (`c`). An empty list is
   a real answer — the reactions that were there have gone.
 * `extra.myRx` is what this account itself chose.
