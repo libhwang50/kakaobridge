@@ -168,6 +168,12 @@ Two details of that answer are worth knowing, both measured in a public Open Cha
   was answered; asked together with an id belonging to a different chat, both were refused (`-203`), and
   that other id alone was refused as well. So the bridge asks about one person at a time.
 
+The two kinds of id appear side by side in one big Open Chat room, which is worth knowing before writing any
+of this off. A message the account itself sent in the 1486-member room arrived with `authorId` equal to that
+account's real id, while the room's own bot arrived as `4983893056747400519`, an id that means nothing
+outside that room. So the bridge has to recognise itself and ask the room about everyone else — which is
+exactly the case that used to leave a nameless person in Matrix.
+
 ### 7a. Group chats (`MultiChat`)
 
 Measured on a Regular Chat and a Team Chat created for the purpose (`cmd/locoprobe` with the bridge's
