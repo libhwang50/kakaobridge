@@ -160,6 +160,11 @@ seconds with `Portal event channel is still full` if the room stays busy. Raise 
 (a few hundred) if it happens often, and check whether the bridge is doing needless work per event — it reads
 the friend list once per connection and asks Kakao about a stranger once per person, not once per message.
 
+The buffer decides how much of a burst is absorbed before the bridge starts waiting, not whether anything is
+lost. Measured with a 1486-member room and a 512 buffer: replaying that room's history at startup filled the
+queue for about two seconds — 152 lines of that message — and then cleared on its own. Raising the number
+shortens the pause; it does not make the message disappear for a room big enough to outrun it.
+
 ## Test failures
 
 Tests that want a file under `loco/testdata/` or `testdata/` skip when it is missing: those captures are
