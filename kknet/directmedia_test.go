@@ -3,8 +3,10 @@
 package kknet
 
 import (
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/libhwang50/kakaobridge/loco"
 )
@@ -73,5 +75,28 @@ func TestSignedMediaIsAddressedAtKakaoAndItemsAreNot(t *testing.T) {
 		if got := directMediaEligible(&tc.meta); got != tc.want {
 			t.Errorf("%s: eligible=%v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// Kakao states two windows on the same attachment and they are not the same length (docs/protocol-notes.md
+// §8: three days in the signed URL, two weeks in the attachment's own `expire`). The one a client may
+// cache for is the shorter, because the address handed to it stops working first.
+func TestTheCachableLifetimeIsKakaosShorterWindow(t *testing.T) {
+	now := time.Unix(1793947734, 0)
+	short := now.Add(3 * 24 * time.Hour)
+	long := now.Add(14 * 24 * time.Hour)
+	urlWith := "https://talk.kakaocdn.net/dna/x.png?credential=k&expires=" + strconv.FormatInt(short.Unix(), 10) + "&signature=s"
+
+	meta := loco.AttachmentMeta{Expire: long.UnixMilli()}
+	if got := mediaExpiry(&meta, urlWith); !got.Equal(short) {
+		t.Errorf("with both windows, the signature in the URL must win: got %v, want %v", got, short)
+	}
+	if got := mediaExpiry(&meta, "https://talk.kakaocdn.net/dna/x.png"); !got.Equal(long) {
+		t.Errorf("with only the attachment's window, that is what to say: got %v, want %v", got, long)
+	}
+	// An item address carries no signature and no expiry, and is served as it is: no expiry to report,
+	// which the media proxy reads as cacheable indefinitely.
+	if got := mediaExpiry(&loco.AttachmentMeta{}, "https://item.kakaocdn.net/dw/4412207.emot_048.webp"); !got.IsZero() {
+		t.Errorf("an item address should report no expiry, got %v", got)
 	}
 }

@@ -104,11 +104,25 @@ func (c *Connector) Download(ctx context.Context, mediaID networkid.MediaID, par
 	if target == "" {
 		return nil, fmt.Errorf("kknet: chat %d message %d has no address left to fetch", chatID, logID)
 	}
-	var expires time.Time
-	if meta.Expire != 0 {
-		expires = time.UnixMilli(meta.Expire)
+	return &mediaproxy.GetMediaResponseURL{URL: target, ExpiresAt: mediaExpiry(meta, target)}, nil
+}
+
+// mediaExpiry says how long a client may keep the address it was just given. The proxy turns this into
+// a cache lifetime five minutes shorter than the answer, so it must not be longer than the redirect it
+// goes with. Kakao states two windows on the same attachment: the signature inside the URL (three days
+// in every sample so far, docs/protocol-notes.md §8) and the attachment's own `expire` (two weeks from
+// the same read). The earlier of the two is the only honest answer.
+func mediaExpiry(meta *loco.AttachmentMeta, target string) time.Time {
+	earliest := time.Time{}
+	if until, ok := loco.SignedUntil(target); ok {
+		earliest = until
 	}
-	return &mediaproxy.GetMediaResponseURL{URL: target, ExpiresAt: expires}, nil
+	if meta.Expire != 0 {
+		if served := time.UnixMilli(meta.Expire); earliest.IsZero() || served.Before(earliest) {
+			earliest = served
+		}
+	}
+	return earliest
 }
 
 // clientForChat picks a connected Kakao account to ask about this chat. A group room has no single

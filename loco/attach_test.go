@@ -2,7 +2,10 @@
 
 package loco
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // The still preview of a sticker item is <itemCode>.thum_<index>.png; verified against the CDN (4412207
 // .thum_034.png -> 200 image/png, 210x210) and matching how the client builds store thumbnails in
@@ -37,6 +40,31 @@ func TestAMiniEmojiItemIsAddressedFromItsCode(t *testing.T) {
 	for _, c := range cases {
 		if got := MiniEmojiURL(c.id); got != c.want {
 			t.Errorf("%q: got %q, want %q", c.id, got, c.want)
+		}
+	}
+}
+
+// A signed DNA URL states the signature's own lifetime, and it is the shorter of the two windows on the
+// attachment: measured on one photo, three days in the URL against two weeks in `expire`. Anything that
+// hands Kakao's URL to someone else has to answer with the short one.
+func TestASignedURLSaysHowLongTheSignatureLasts(t *testing.T) {
+	url := "https://talk.kakaocdn.net/dna/caamNY/TkUUiXGTpNV7.png?credential=zf3biCP&expires=1794206934&signature=gbdwed"
+	got, ok := SignedUntil(url)
+	if !ok {
+		t.Fatal("the signature expiry in the URL was not read")
+	}
+	if !got.Equal(time.Unix(1794206934, 0)) {
+		t.Errorf("got %v, want the instant the URL names", got)
+	}
+	for _, noExpiry := range []string{
+		"https://item.kakaocdn.net/dw/4412207.emot_048.webp", // an item: no signature, no expiry
+		"https://talk.kakaocdn.net/dna/x.png",
+		"https://talk.kakaocdn.net/dna/x.png?expires=",
+		"https://talk.kakaocdn.net/dna/x.png?expires=soon",
+		"https://talk.kakaocdn.net/dna/x.png?expires=0",
+	} {
+		if _, ok := SignedUntil(noExpiry); ok {
+			t.Errorf("%q was read as naming an expiry", noExpiry)
 		}
 	}
 }

@@ -311,18 +311,23 @@ by the Kakao `chatId` and only uses `li` to look the profile up.
 attachment is a JSON blob whose keys are abbreviations (`rsc`, `hfac`, `cs`, `name`, `du`, `pl`…);
 `AttachmentMetaOf` decodes them and explains which key means what. Two practical traps:
 
-* the CDN URLs in old logs are **signed and expire** (`expires`/`expire`), so an old photo may be
-  unfetchable even though the log entry is fine;
+* the CDN URLs in old logs are **signed and expire**, and an attachment states two different windows:
+  `expires` inside the URL (unix seconds — exactly three days after each history read in the two samples
+  taken) and `expire` on the attachment (unix milliseconds — two weeks from the same read). So an old
+  photo may be unfetchable even though the log entry is fine, and anything that passes Kakao's URL to a
+  third party must cache it for the shorter of the two;
 * the numeric `attachType` values are what the client uses to choose a renderer; `attach.go` maps the
   ones this bridge converts and refuses the rest rather than guessing.
 
 **The signature is why a media address names the message, not the URL.** Reading a history page returns a
-signature that is fresh *at that moment*, with `expire` a few days ahead; the same call a week later
-returns a different signature for the same file. So anything that wants to point at a Kakao attachment
+signature that is fresh *at that moment*, valid for three days; the same call a week later returns a
+different signature for the same file. So anything that wants to point at a Kakao attachment
 later has to name the chat and the log id and ask again, which is what direct media does
 (`kknet/directmedia.go`, `docs/configuration.md`): the media proxy answers such a request by re-reading
-the message and redirecting to the address Kakao just gave it, with a cache lifetime that ends before
-Kakao's own signature does. Item assets are the exception and stay copied: their address does not expire
+the message and redirecting to the address Kakao just gave it, with a cache lifetime that ends before the
+shorter of the two windows above does. Verified live: the redirect for a bridged photo came back as
+`307` with a fresh `talk.kakaocdn.net` signature and a `max-age` a few minutes short of that signature's
+own expiry. Item assets are the exception and stay copied: their address does not expire
 (§11) but their bytes are not directly viewable.
 
 ### 8a. Editing, deleting, quoting and styling a message

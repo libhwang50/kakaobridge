@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	urlpkg "net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -157,13 +158,31 @@ func decodeAttachmentObject(raw string) (any, []Elem, bool) {
 	return v, nil, true
 }
 
-// Expired reports whether the signed download URL is past its own expiry. Kakao signs these at
-// roughly the time the message is fetched, with a validity measured in days.
+// Expired reports whether the signed download URL is past its own expiry. The `expire` field is the
+// longer of the two windows on an attachment: measured on the same photo, it ran two weeks past the
+// history read that returned it, while the signature in the URL itself (`expires`, unix seconds) ran
+// three days. So this says the attachment is still being served at all, which is what the bridge's own
+// "fetch it now or maybe never" decision needs; the shorter signature is in SignedUntil.
 func (m *AttachmentMeta) Expired(now time.Time) bool {
 	if m.Expire == 0 {
 		return false
 	}
 	return time.UnixMilli(m.Expire).Before(now)
+}
+
+// SignedUntil reads the expiry of a signed DNA URL out of the URL: `expires` in unix seconds. Measured
+// on two history reads of the same photo, each signature was valid exactly three days from the moment
+// it was handed over.
+func SignedUntil(rawURL string) (time.Time, bool) {
+	u, err := urlpkg.Parse(rawURL)
+	if err != nil {
+		return time.Time{}, false
+	}
+	sec, err := strconv.ParseInt(u.Query().Get("expires"), 10, 64)
+	if err != nil || sec <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(sec, 0), true
 }
 
 // DownloadURL returns the best URL to fetch: the full resource if present, otherwise the thumbnail

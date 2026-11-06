@@ -107,6 +107,11 @@ Two things to get right once:
 * `server_key` signs the media id. Leave it empty to have one generated and stored in the database, or set
   it yourself if you want old URIs to survive a database restore.
 
+And one trap: `expose:` in a compose file makes the port visible to other containers, not to a reverse
+proxy on another host. If the proxy answers `502`, publish the port (`ports: ["29315:29315"]`) — the
+media endpoints are signed by the bridge, and the appservice transactions on the same port still require
+the appservice access token, so publishing it does not open the bridge up.
+
 Nothing about the appservice registration changes. The homeserver may fetch that media through its own
 docker network if you give it a name it can resolve; the public name is for clients.
 

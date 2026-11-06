@@ -109,9 +109,12 @@ the id and what it does when one is fetched (`kknet/directmedia.go`):
 
 * The id names **the message**, not Kakao's address for it, because that address is signed for a few
   days (`docs/protocol-notes.md` §8). Every request re-reads the message and gets a fresh one.
-* The answer is a redirect to the signed URL, with a cache lifetime that ends shortly before Kakao's own
-  signature does — so a client that asks twice in a day crosses the network to Kakao once, and the
-  homeserver stores no media bytes for these messages.
+* The answer is a redirect to the signed URL, with a cache lifetime that ends shortly before the shorter
+  of the two expiry windows Kakao states (the signature in the URL runs three days; the attachment's own
+  `expire` runs two weeks — `docs/protocol-notes.md` §8). A client that asks twice in a day crosses the
+  network to Kakao once, and the homeserver stores no media bytes for these messages. Measured on this
+  deployment: `307` + `location: https://talk.kakaocdn.net/dna/…?signature=…`, with `max-age` five minutes
+  short of the signature's own end.
 * **What stays copied**: stickers, emotes and mini emoticons. Their bytes have an encrypted header that
   has to be decrypted, and some of them are not a format a client can open, so the bridge must hold them
   to decide what to send (§11). A message that has no media left to address stays a text placeholder as
