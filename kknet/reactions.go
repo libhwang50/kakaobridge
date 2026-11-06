@@ -28,9 +28,9 @@ import (
 )
 
 // reactionEmoji names the character to show for the reaction items this bridge has watched Kakao's own
-// client draw. The built-in set is 114 items (measured from the picker API), and its items are pictures
-// rather than Unicode characters, so a character for any of them is a choice, not a fact: only the ones
-// seen on screen are listed here.
+// client draw. Every item the reaction picker offers is a mini emoticon (kind 2), a picture rather than
+// a Unicode character, so a character for any of them is a choice, not a fact: only the ones seen on
+// screen are listed here. The item itself travels with the reaction in reactionExtra either way.
 var reactionEmoji = map[string]string{
 	"1200509_029": "❤️", // 사랑
 	"1200509_021": "👍",  // 엄지척
@@ -157,6 +157,20 @@ func (c *Client) reactionChanged(logID, revision int64, count int) bool {
 	return true
 }
 
+// reactionExtra says, next to the character shown, which Kakao reaction this actually is. The character
+// is a stand-in for a picture in Kakao's set, so anything that wants to show the real thing, or to send
+// the reaction back, needs the item code and its kind rather than a guess from the glyph. The name is
+// the one Kakao gives the item, and the key is this bridge's own namespace.
+func reactionExtra(item kakao.ReactionItem) map[string]any {
+	return map[string]any{
+		"cc.libhwang.kakaobridge.reaction": map[string]any{
+			"item": item.Item,
+			"kind": item.Kind,
+			"name": item.Alt["ko"],
+		},
+	}
+}
+
 // queueReactions sends one message's reaction state to Matrix.
 func (c *Client) queueReactions(ctx context.Context, log zerolog.Logger, chatID int64, chatType string,
 	meta kakao.MessageReactions, people []kakao.Reactor) {
@@ -184,9 +198,10 @@ func (c *Client) queueReactions(ctx context.Context, log zerolog.Logger, chatID 
 				data.Users[nid] = entry
 			}
 			entry.Reactions = append(entry.Reactions, &bridgev2.BackfillReaction{
-				Sender:  c.senderOf(uid),
-				EmojiID: networkid.EmojiID(react.Item),
-				Emoji:   key,
+				Sender:       c.senderOf(uid),
+				EmojiID:      networkid.EmojiID(react.Item),
+				Emoji:        key,
+				ExtraContent: reactionExtra(react.ReactionItem),
 			})
 		}
 	}

@@ -48,8 +48,10 @@ func (q *quotedInt64) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ReactionItem is one reaction. `k` is the kind - 2 for the built-in set every chat can use - and `o`
-// names the item inside that set ("1200509_029"). `a` is the alt text the client reads out for a
+// ReactionItem is one reaction. `k` is the kind: the shipped client spells them out as -1 unknown, 1
+// reaction, 2 mini emoticon, and only 2 has been seen on the wire — what the reaction picker offers is
+// its mini-emoticon set, which is why an item is a picture with a name rather than a character. `o`
+// names the item inside that set ("1200509_029"), `a` is the alt text the client reads out for a
 // screen reader, and `c` is how many people chose it.
 type ReactionItem struct {
 	Kind  int               `json:"k"`

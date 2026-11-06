@@ -114,10 +114,12 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
 * **A reaction in Kakao does not appear in Matrix** — Kakao sends nothing when someone reacts (measured on a
   listening session, and in a busy Open Chat room), so the bridge reads reactions itself: with each page of
   history, and again a couple of minutes after a room has been active. A reaction on a message the bridge
-  never bridged has nothing to attach to and is skipped. The character shown is chosen from what Kakao's own
-  client draws; a reaction the bridge has not seen drawn keeps the Korean name Kakao gives it
-  (`docs/protocol-notes.md` §12). Reacting in Matrix does nothing in Kakao yet — the write call has not been
-  measured, so a Matrix reaction is refused with `Reactions are not supported`.
+  never bridged has nothing to attach to and is skipped. Kakao's reactions are mini emoticons rather than
+  emoji, so the character shown is a stand-in — chosen from what Kakao's own client draws, and a reaction
+  the bridge has not seen drawn keeps the Korean name Kakao gives it; each event names the item behind it
+  under `cc.libhwang.kakaobridge.reaction` (`docs/protocol-notes.md` §12). Reacting in Matrix does nothing
+  in Kakao yet — the write call has not been measured, so a Matrix reaction is refused with
+  `Reactions are not supported`.
 * **No space, just rooms** — `bridge.personal_filtering_spaces: true`.
 * **A friend's room has no avatar** — a Kakao account with the default avatar has no profile image URL.
   That is not a failed fetch.

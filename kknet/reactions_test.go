@@ -30,6 +30,20 @@ func TestAReactionIsShownByNameWhenItsFaceIsUnknown(t *testing.T) {
 	}
 }
 
+// A character in Matrix stands in for a picture in Kakao, so the reaction says which item it came from.
+// That is what a client would need to draw the real thing, and what sending a reaction back to Kakao
+// would need later.
+func TestABridgedReactionSaysWhichKakaoItemItIs(t *testing.T) {
+	extra := reactionExtra(kakao.ReactionItem{Kind: 2, Item: "1200509_029", Alt: map[string]string{"ko": "사랑"}})
+	raw, ok := extra["cc.libhwang.kakaobridge.reaction"].(map[string]any)
+	if !ok {
+		t.Fatalf("the reaction did not describe itself under this bridge's own name: %v", extra)
+	}
+	if raw["item"] != "1200509_029" || raw["kind"] != 2 || raw["name"] != "사랑" {
+		t.Errorf("the reaction described itself as %v", raw)
+	}
+}
+
 // Kakao repeats the whole reaction state of a message every time it is read, and the revision moves
 // whenever it changes. Applying the same state twice would send Matrix the same annotation over and
 // over, and treating a removal as "nothing here" would leave the annotation behind.

@@ -420,6 +420,7 @@ next to the media API, keyed by the message's log id, and only two reads are mea
 ```text
 GET /emoticon/chat/rx/logmetas?chatId=&minLogId=&maxLogId=&order=asc&limit=100
 GET /emoticon/chat/rx/log-details?chatId=[&linkId=]&logId=
+GET /emoticon/chat/rx/views/reaction-picker?plusRevision=0&plusActive=false   # the set a chat may use
 ```
 
 `logmetas` answers for a **range of messages** at once, which is what lets one call cover one page of
@@ -446,12 +447,35 @@ history:
   from that person is attributed to — and the call needs the room's `linkId`, which is CHATINFO's `li`.
   Without it the answer is `{"status":-400}`; `linkId=0` and an empty `linkId` are refused too. For an
   ordinary chat the parameter is left out entirely.
-* The item set is measured from the picker: `GET /emoticon/chat/rx/views/reaction-picker?plusRevision=0
-  &plusActive=false` lists 114 built-in items as `{"k":2,"o":"1200509_NNN","a":{"ko":"…"}}`. They are
-  pictures rather than Unicode characters, and the only text with them is a Korean name. The first six of
-  them are the row the message menu shows, in picker order, and the client's own reaction sheet draws
-  `1200509_029` as a heart and `1200509_021` as a thumbs up; for anything past what has been seen drawn,
-  the bridge shows the name Kakao gives rather than inventing a face.
+* The set itself is measured from the picker: it lists 114 built-in items as
+  `{"k":2,"o":"1200509_NNN","a":{"ko":"…"}}`, with no text attached beyond a Korean name.
+* What `k` means is in the client: the kinds are `-1` unknown, `1` reaction, `2` mini emoticon. Every
+  reaction measured here is kind 2, so the reaction picker's built-in set **is** the mini-emoticon set —
+  item pack `1200509`, whose items are pictures with a Korean name attached. Kind 1 has not been seen on
+  the wire, and the item codes it would carry are unknown. A related enum in the same code, `ProductTier`,
+  is `EMBEDDED`/`BASIC`/`PLUS`, which is what the picker's `plusRevision`/`plusActive` parameters are for;
+  only the basic tier has been read here.
+* The first six items in picker order are the row the message menu shows, and the client's own reaction
+  sheet draws `1200509_029` as a heart and `1200509_021` as a thumbs up; those two, and four others seen
+  in that row, are the only characters this bridge claims to know. For anything past what has been seen
+  drawn, it shows the name Kakao gives rather than inventing a face.
+
+**What the bridge puts in Matrix.** The reaction's `m.relates_to.key` is the character, its `EmojiID` in
+the bridge's own table is the Kakao item code, and the Matrix event carries
+
+```json
+{"cc.libhwang.kakaobridge.reaction":{"item":"1200509_029","kind":2,"name":"사랑"}}
+```
+
+so the item behind the stand-in character is stated rather than left to be guessed.
+
+**Showing the real mini emoticon in Matrix — not implemented.** Matrix has a convention for this: the
+annotation key is an `mxc://` URI of an image uploaded as a custom emoji, which is how mautrix-discord
+bridges Discord custom emoji (behind a `custom_emoji_reactions` option, falling back to the text
+`:shortcode:` as the key otherwise — the same shape as this bridge's name fallback). Doing it for Kakao
+needs the image bytes for a mini-emoticon item, which has not been read: sticker and emote items have
+their own asset path (§11), and whether `1200509_*` mini emoticons use the same one is unmeasured. When
+it is, nothing else in the mapping has to change: the item code is already the reaction's identity.
 
 **Nothing is pushed.** Two reactions made from the phone produced no frame on this bridge's LOCO session,
 and 45 minutes watching a public Open Chat room that has reactions in it produced no reaction frame
