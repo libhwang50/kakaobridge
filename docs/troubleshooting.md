@@ -67,12 +67,13 @@ probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair s
   Kakao either (the phone titles it from its members, so the bridge composes a name of its own), and a
   group whose *members* changed may show a stale title until the chat is resynced (`sync-portal` in the
   room).
-* **Someone in an Open Chat room is shown by their real name, or an open-chat nickname shows up in a
-  friend chat** — Open Chat rooms use a separate *open profile*, and the bridge keeps one Matrix ghost per
-  Kakao account. A person you have friended is therefore shown by their real name everywhere, and someone
-  the room's member list did not carry is named from the profile of the room where they spoke; a person who
-  is both is one Matrix user showing whichever profile was read first (`docs/protocol-notes.md` §7).
-  Kakao separates those identities per room; the bridge cannot.
+* **Someone in an Open Chat room is shown by a name you don't recognise** — that is the *open profile* this
+  room uses, which is what Kakao shows there too. Names come from the room's own member list, and someone
+  that list did not carry is asked about in the room where they spoke (`docs/protocol-notes.md` §7). Those
+  identities stay apart: a room's participant ids belong to that room — the same room bot measured as
+  `4983893056747400519` in one room and `7515847906077057080` in another — so an Open Chat participant and
+  a person you friended are separate Matrix users, as they are in Kakao. Only your own identity carries
+  across: your messages arrive with your account id even in an Open Chat room, and are bridged as you.
 * **An Open Chat room has no name, topic or picture** — that profile is not on the chat: the bridge reads
   it from the room's Open Link with a second call (`docs/protocol-notes.md` §7b). If the room stayed
   unnamed, look for `Kakao did not describe this open chat room` in the log: that call was refused and the

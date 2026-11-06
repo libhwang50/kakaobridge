@@ -277,11 +277,13 @@ Two things matter when using that answer:
 * Open Chat participants appear under an **open profile**, not the account's main profile: `olu` is a
   separate nickname and image set, kept precisely because main profiles carry real names. The bridge reads
   participants from `GETMEM` (§7a), which reports those open profiles, and asks `MEMBER` about anyone that
-  list did not carry — in that room, so the answer is the open profile this room shows. A main profile
-  never appears in an Open Chat room. The bridge keeps one ghost per Kakao account, so a person who appears
-  in both a friend chat and an Open Chat room is one Matrix user showing whichever of the two profiles was
-  read last. Kakao separates those identities per room; the bridge cannot, and says so rather than
-  pretending otherwise.
+  list did not carry — in that room, so the answer is the open profile this room shows.
+* The ids a room uses for its participants belong **to that room**. Measured with one and the same room bot:
+  it is `4983893056747400519` in one room and `7515847906077057080` in another, and `MEMBER` answered each
+  only about the room it belongs to. So an open profile and a main profile are not one identity as far as the
+  protocol is concerned, and the bridge keeps them apart by itself: each id becomes its own Matrix user
+  carrying the name and picture that room gave it. What *is* shared is the account's own identity — its own
+  messages arrive with its real account id even inside an Open Chat room, and are bridged as the bridged user.
 * `SYNCLINK` is the read path for the account's own links — the rooms it created and the ones it joined.
   It was measured on a room this account created; whether a room merely joined appears in the same list
   was not measured. Either way the failure mode is safe: no matching entry means the bridge leaves the
