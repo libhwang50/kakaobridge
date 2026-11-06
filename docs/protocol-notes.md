@@ -405,8 +405,63 @@ HTML, and a spoiler's whole point is that its words are not shown — so the bri
 `||like this||`, which is the marker the client here writes in the fallback body of its own spoiler. The
 other styles need no marker; they read the same either way.
 
-**In the app, not yet on the wire here.** In an Open Chat room the message menu also offers reactions and
-"Reply in thread". Neither has been captured on the wire by this bridge, so neither is bridged.
+**In the app, and what became of them.** In an Open Chat room the message menu also offers reactions and
+"Reply in thread". Reactions were then captured on the wire and are read by the bridge (§12); they are
+not sent to Kakao yet, because the write call there has not been measured. Threads have not been
+captured at all, so they are not bridged.
+
+## 12. Reactions
+
+`kakao/reactions.go`, `kknet/reactions.go`.
+
+A reaction is not part of the chat log and is not pushed over LOCO. It lives on the messaging gateway
+next to the media API, keyed by the message's log id, and only two reads are measured:
+
+```text
+GET /emoticon/chat/rx/logmetas?chatId=&minLogId=&maxLogId=&order=asc
+GET /emoticon/chat/rx/log-details?chatId=[&linkId=]&logId=
+```
+
+`logmetas` answers for a **range of messages** at once, which is what lets one call cover one page of
+history:
+
+```json
+{"logmetas":[{"logId":"3965989416160335874","revision":"3967312924227117320",
+  "content":"{\"rx\":[{\"k\":2,\"o\":\"1200509_029\",\"c\":1,\"a\":{\"ko\":\"사랑\"}}]}",
+  "extra":"{\"myRx\":[{\"k\":2,\"o\":\"1200509_029\"}]}"}],
+ "hasNext":false,"order":"ASC","status":0}
+```
+
+* `content.rx` is that message's state: which item, and how many people chose it (`c`). An empty list is
+  a real answer — the reactions that were there have gone.
+* `extra.myRx` is what this account itself chose.
+* `revision` moves with every reaction added or removed. It is the only cheap change signal, so the
+  bridge compares it rather than re-asking who reacted.
+* Every id in these answers is a JSON **string**, not a number.
+* `log-details` names the people: `{"details":[{"k":2,"o":"1200509_029","a":{"ko":"…"},"u":["447137810"]}],
+  "status":0}`. In an Open Chat room `u` holds that room's own participant ids — the same ids a message
+  from that person is attributed to — and the call needs the room's `linkId`, which is CHATINFO's `li`.
+  Without it the answer is `{"status":-400}`; `linkId=0` and an empty `linkId` are refused too. For an
+  ordinary chat the parameter is left out entirely.
+* The item set is measured from the picker: `GET /emoticon/chat/rx/views/reaction-picker?plusRevision=0
+  &plusActive=false` lists 114 built-in items as `{"k":2,"o":"1200509_NNN","a":{"ko":"…"}}`. They are
+  pictures rather than Unicode characters, and the only text with them is a Korean name. The first six of
+  them are the row the message menu shows, in picker order, and the client's own reaction sheet draws
+  `1200509_029` as a heart and `1200509_021` as a thumbs up; for anything past what has been seen drawn,
+  the bridge shows the name Kakao gives rather than inventing a face.
+
+**Nothing is pushed.** Two reactions made from the phone produced no frame on this bridge's LOCO session,
+and 45 minutes watching a public Open Chat room that has reactions in it produced no reaction frame
+either. The pushes in that window were `DECUNREAD`, `MSG` and `SYNCACTION` — the last names a chat, a
+member and a message, and is not a reaction: none of the log ids it named had one. So reactions are
+read: once per page while a room's history is read, and again once a room has been live for a while.
+
+**The write call is not bridged.** `chat/rx/do` is on the same gateway, but every body tried from the
+read shape answered `HTTP 400 {"status":-500}`: with and without `chatId`, `reqId` and `revision`, with
+`act`/`do` flags, with `k`/`o` as number or string, `logId` as number or string, and with and without
+the `talk-agent`/`talk-language` headers the media API needs. The request body has not been captured, so
+the bridge sends no reaction to Kakao, and a Matrix reaction is refused with mautrix's own "reactions
+are not supported" rather than being half-implemented.
 
 ## 9. Sending: `WRITE` and `WRITEMEDIA`
 
@@ -465,7 +520,7 @@ with a fixed key embedded in the app (`DecryptItemAsset`). Decrypted, they are r
 can be uploaded to Matrix as-is; the item metadata carries no dimensions, so the bridge reads the
 canvas size out of the VP8X chunk.
 
-## 12. Client constants
+## 13. Client constants
 
 `network.*`, `Config.Fill`.
 
@@ -475,14 +530,14 @@ that look older than the account's client are rejected. They are defaults measur
 device and app build, not universal constants — when something breaks with no protocol change, this is
 the first thing to compare against a current client.
 
-## 13. Verbs the client knows and this bridge does not use
+## 14. Verbs the client knows and this bridge does not use
 
 The mobile client's route table lists more LOCO verbs than this bridge calls (`loco/client.go`
 comments). The unimplemented ones are the right verbs, not guesses — they simply have no
 implementation behind them yet. `cmd/locoprobe` exists to test a verb body by hand before anyone writes
 Go for it.
 
-## 14. Re-measuring anything here
+## 15. Re-measuring anything here
 
 ```bash
 go run ./cmd/locoprobe -tokens <tokens.json> -- 'MCHATLOGS chatIds:i64list=… sinces:i64list=…'

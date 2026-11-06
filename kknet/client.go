@@ -65,6 +65,12 @@ type Client struct {
 	// skips, or history Kakao did not serve), so the bridge needs to know what it did bridge in order
 	// to put the receipt on the nearest older message that is actually there.
 	bridged map[int64][]int64
+	// reactions remembers the reaction state last sent to Matrix per message, and reactionAt when a
+	// room's reactions were last read. Kakao does not push reactions, so reading them is the bridge's
+	// own schedule, and the remembered revision is what keeps that schedule from re-sending a state
+	// Matrix already has.
+	reactions  map[int64]reactionState
+	reactionAt map[int64]time.Time
 }
 
 var (
@@ -74,16 +80,18 @@ var (
 
 func NewClient(c *Connector, login *bridgev2.UserLogin, meta *LoginMeta) *Client {
 	return &Client{
-		conn:      c,
-		login:     login,
-		meta:      meta,
-		auth:      meta.DeviceAuth(&c.cfg),
-		rooms:     map[int64]*roomData{},
-		users:     map[int64]loco.Member{},
-		seenIn:    map[int64]int64{},
-		seenChats: map[int64]string{},
-		links:     map[int64]int64{},
-		bridged:   map[int64][]int64{},
+		conn:       c,
+		login:      login,
+		meta:       meta,
+		auth:       meta.DeviceAuth(&c.cfg),
+		rooms:      map[int64]*roomData{},
+		users:      map[int64]loco.Member{},
+		seenIn:     map[int64]int64{},
+		seenChats:  map[int64]string{},
+		links:      map[int64]int64{},
+		bridged:    map[int64][]int64{},
+		reactions:  map[int64]reactionState{},
+		reactionAt: map[int64]time.Time{},
 	}
 }
 

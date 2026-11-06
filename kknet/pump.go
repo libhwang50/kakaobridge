@@ -515,6 +515,14 @@ func (c *Client) backfillChat(ctx context.Context, chatID int64, chatType string
 				count++
 			}
 		}
+		// Reactions belong to messages, and this is the one point where a page of them is known, so one
+		// range covers the whole page. It is deliberately after the messages are queued: a reaction has
+		// to arrive at Matrix after the event it reacts to.
+		c.lookForReactions(ctx, c.login.Log, kakao.RxMetaPage{
+			ChatID:   chatID,
+			MinLogID: logs[0].LogID,
+			MaxLogID: logs[len(logs)-1].LogID,
+		})
 		last := logs[len(logs)-1].LogID
 		if eof || last <= since {
 			break
@@ -679,7 +687,13 @@ func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Fram
 			if err := c.queueChatLog(ctx, cl); err != nil {
 				log.Warn().Err(err).Int64("chat_id", cl.ChatID).Int64("log_id", cl.LogID).
 					Msg("Failed to bridge a pushed Kakao message")
+				continue
 			}
+			// A room that is busy is a room whose reactions may be changing. Kakao does not push those,
+			// so activity in the room is the only sign the bridge has; the interval inside keeps this to
+			// one look per room per while, and the look runs on its own so the room's queue does not wait
+			// on a gateway call.
+			c.lookForReactionsSoon(cl.ChatID)
 		}
 	case "DECUNREAD":
 		c.handleReadMarker(ctx, log, f)

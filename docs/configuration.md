@@ -16,7 +16,7 @@ This page covers the parts that are specific to Kakao or that are easy to get wr
 ## `network:` — the Kakao side
 
 Every value here is what the bridge *announces to Kakao*, and Kakao cross-checks the combination
-(`docs/protocol-notes.md` §12). The defaults were measured from one Android build; they are defaults,
+(`docs/protocol-notes.md` §13). The defaults were measured from one Android build; they are defaults,
 not constants.
 
 | key | default | notes |
