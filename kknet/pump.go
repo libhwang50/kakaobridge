@@ -242,7 +242,33 @@ func (c *Client) queueChatResync(ctx context.Context, chatID int64, chatType str
 }
 
 func (c *Client) queueChatDelete(ctx context.Context, chatID int64) {
-	c.queueChatDeleteForKey(ctx, c.forgetChat(chatID))
+	key, ok := c.knownPortalKey(ctx, chatID)
+	if !ok {
+		// There is no room to take away. Queueing it anyway makes the framework create a portal row for a
+		// chat it never bridged, which then sits in the database as a room that never had one - and gets
+		// reported again at the next login, because Kakao keeps naming the chat.
+		c.login.Log.Debug().Int64("chat_id", chatID).
+			Msg("Kakao says a chat the bridge never made a room for is gone")
+		return
+	}
+	c.forgetChat(chatID)
+	c.queueChatDeleteForKey(ctx, key)
+}
+
+// knownPortalKey returns the portal key this bridge really holds for a Kakao chat, if it holds one. The
+// receiver matters: a one-to-one chat's portal is keyed to the login that bridged it, so this asks the
+// database rather than rebuilding the key from what the chat's class happens to have been.
+func (c *Client) knownPortalKey(ctx context.Context, chatID int64) (networkid.PortalKey, bool) {
+	id := networkid.PortalID(strconv.FormatInt(chatID, 10))
+	key, err := c.login.Bridge.DB.Portal.FindReceiver(ctx, id, c.login.ID)
+	if err != nil {
+		c.login.Log.Debug().Err(err).Int64("chat_id", chatID).Msg("Looking up a bridged chat failed")
+		return networkid.PortalKey{}, false
+	}
+	if key.ID == "" {
+		return networkid.PortalKey{}, false
+	}
+	return key, true
 }
 
 // forgetChat drops what this session remembers about a chat and returns the portal key it was bridged
