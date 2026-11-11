@@ -472,7 +472,9 @@ func ParseMemberResponse(body []byte) ([]Member, error) {
 
 func ParseChatInfoResponse(body []byte) (*ChatSummary, error) {
 	if inner := InnerStatus(body); inner != 0 {
-		return nil, fmt.Errorf("loco: CHATINFO inner status %d", inner)
+		// Typed, because -401 is the answer a chat this account is no longer in gives, and the caller has
+		// to tell that apart from a socket that went away.
+		return nil, fmt.Errorf("loco: %w", &InnerError{Verb: "CHATINFO", Status: inner})
 	}
 	elems, _, err := DecodeDoc(body, 0)
 	if err != nil {

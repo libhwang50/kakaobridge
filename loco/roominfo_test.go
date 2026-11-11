@@ -165,6 +165,23 @@ func TestParseWriteResponse(t *testing.T) {
 	}
 }
 
+// A chat this account is no longer in is answered with inner status -401, and a caller has to tell that
+// apart from a socket that died, so the refusal carries the verb and the status with it. The wording is
+// pinned because it is what the bridge logs show (docs/protocol-notes.md §6).
+func TestARefusedChatSaysWhichVerbAndWhichStatus(t *testing.T) {
+	_, err := ParseChatInfoResponse(EncodeDoc([]Elem{{Key: "status", Type: 0x10, Val: int32(-401)}}))
+	var inner *InnerError
+	if !errors.As(err, &inner) {
+		t.Fatalf("a refused CHATINFO should carry its own status: %v", err)
+	}
+	if inner.Verb != "CHATINFO" || inner.Status != -401 {
+		t.Errorf("the refusal said %s/%d, want CHATINFO/-401", inner.Verb, inner.Status)
+	}
+	if err.Error() != "loco: CHATINFO inner status -401" {
+		t.Errorf("the log line for a refused chat changed: %q", err.Error())
+	}
+}
+
 // The self-chat history in testdata contains a real photo and a real file, which is what pins the
 // attachment field names (url/mt/w/h/s/rsc/name) and the fact that downloads are plain signed HTTPS.
 func TestAttachmentMetaFromRealMessages(t *testing.T) {

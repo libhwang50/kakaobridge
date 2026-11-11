@@ -190,7 +190,9 @@ func (c *Client) chatTypeFor(ctx context.Context, chatID int64) string {
 func (c *Client) ingestChatList(ctx context.Context, state *loco.RoomState) {
 	log := c.login.Log
 	created, msgs := 0, 0
+	listed := make(map[int64]bool, len(state.Rooms))
 	for _, r := range state.Rooms {
+		listed[r.ChatID] = true
 		if err := c.queueChatResync(ctx, r.ChatID, r.Type); err != nil {
 			log.Warn().Err(err).Int64("chat_id", r.ChatID).Str("chat_type", r.Type).
 				Msg("Failed to create or update the room for a Kakao chat")
@@ -209,7 +211,12 @@ func (c *Client) ingestChatList(ctx context.Context, state *loco.RoomState) {
 	for _, gone := range state.Deleted {
 		c.queueChatDelete(ctx, gone)
 	}
+	// The list is a delta, so a chat can be absent for a boring reason (nobody spoke) or because this
+	// account is no longer in it. The second kind is what markChatsTheAccountLeft looks for; one CHATINFO
+	// round trip per room the list did not name is the cost of asking rather than guessing.
+	asked, left := c.markChatsTheAccountLeft(ctx, listed)
 	log.Info().Int("rooms", created).Int("messages", msgs).
+		Int("asked", asked).Int("left", left).
 		Msg("Chat list bridged: rooms created/updated and messages loaded")
 }
 
@@ -235,17 +242,103 @@ func (c *Client) queueChatResync(ctx context.Context, chatID int64, chatType str
 }
 
 func (c *Client) queueChatDelete(ctx context.Context, chatID int64) {
+	c.queueChatDeleteForKey(ctx, c.forgetChat(chatID))
+}
+
+// forgetChat drops what this session remembers about a chat and returns the portal key it was bridged
+// under. It is not permanent: a message that arrives for that chat later makes the room again, which is
+// what a person who rejoins expects.
+func (c *Client) forgetChat(chatID int64) networkid.PortalKey {
 	c.mu.Lock()
 	chatType := c.seenChats[chatID]
 	delete(c.seenChats, chatID)
 	delete(c.rooms, chatID)
 	c.mu.Unlock()
+	return c.portalKeyFor(chatID, chatType)
+}
+
+// queueChatDeleteForKey tells the framework a chat is gone. The key comes from wherever the caller knows
+// it, because a one-to-one chat's portal is keyed to the login that bridged it and guessing the chat's
+// class would look up a portal that does not exist.
+func (c *Client) queueChatDeleteForKey(ctx context.Context, key networkid.PortalKey) {
 	c.login.Bridge.QueueRemoteEvent(c.login, &simplevent.ChatDelete{
 		EventMeta: simplevent.EventMeta{
 			Type:      bridgev2.RemoteEventChatDelete,
-			PortalKey: c.portalKeyFor(chatID, chatType),
+			PortalKey: key,
 		},
+		// Every Kakao signal for a chat being gone is about this account: delChatIds arrives on this
+		// device's delta, and -401 is "not in it for you". So the framework should drop this account and
+		// keep the room if another bridged account is still in it, rather than take the room away from
+		// someone who is. With a single account the effect is the same as a delete.
+		OnlyForMe: true,
 	})
+}
+
+// chatIsGoneForUs reports whether a CHATINFO answer was Kakao saying this account is not in that chat:
+// inner status -401, read as a whole chat that was deleted and as a chat the account left. Anything else
+// - a socket that went away, a status we have not measured - is not a no.
+func chatIsGoneForUs(err error) bool {
+	var inner *loco.InnerError
+	return errors.As(err, &inner) && inner.Verb == "CHATINFO" && inner.Status == -401
+}
+
+// chatsNoLongerListed picks the rooms to ask Kakao about: this login has a portal for them, and the list
+// it just received did not name them. A list that named nothing is not treated as a complete answer - one
+// empty snapshot would otherwise put every room in the account at risk.
+func chatsNoLongerListed(portalIDs []int64, listed map[int64]bool) []int64 {
+	if len(listed) == 0 {
+		return nil
+	}
+	out := make([]int64, 0, len(portalIDs))
+	for _, id := range portalIDs {
+		if !listed[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// markChatsTheAccountLeft asks CHATINFO about the rooms this login bridges that the chat list did not
+// name, and reports the ones Kakao refuses with -401 (docs/protocol-notes.md §6). Absence from the list
+// is only the reason to ask; the refusal is the evidence. The framework then drops this account from the
+// room, or removes the room when no other bridged account is in it.
+func (c *Client) markChatsTheAccountLeft(ctx context.Context, listed map[int64]bool) (asked, left int) {
+	lg := c.login.Log
+	if c.session() == nil {
+		return 0, 0
+	}
+	rows, err := c.login.Bridge.DB.UserPortal.GetAllForLogin(ctx, c.login.UserLogin)
+	if err != nil {
+		lg.Err(err).Msg("Asking which rooms this login bridges failed")
+		return 0, 0
+	}
+	ids := make([]int64, 0, len(rows))
+	keys := make(map[int64]networkid.PortalKey, len(rows))
+	for _, row := range rows {
+		id, err := strconv.ParseInt(string(row.Portal.ID), 10, 64)
+		if err != nil {
+			continue // a portal this bridge did not name after a Kakao chat
+		}
+		ids = append(ids, id)
+		keys[id] = row.Portal
+	}
+	for _, id := range chatsNoLongerListed(ids, listed) {
+		asked++
+		cf, err := c.session().ChatInfo(id)
+		if err == nil {
+			_, err = loco.ParseChatInfoResponse(cf.Body)
+		}
+		if chatIsGoneForUs(err) {
+			left++
+			lg.Info().Int64("chat_id", id).Msg("Kakao says this account is no longer in that chat")
+			c.forgetChat(id)
+			c.queueChatDeleteForKey(ctx, keys[id])
+		} else if err != nil {
+			lg.Debug().Err(err).Int64("chat_id", id).
+				Msg("Kakao did not answer whether this account is still in that chat")
+		}
+	}
+	return asked, left
 }
 
 // chatInfoFor builds the room metadata bridgev2 needs: room type, members (with ghost profiles), and

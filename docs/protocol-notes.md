@@ -125,8 +125,20 @@ Measured on one account: an unfollowed plus chat appeared there, while a Team Ch
 deleted was absent from `chatDatas` *and* absent from `delChatIds`. What does answer for it is
 `CHATINFO`, which refuses such a chat with **inner `-401`** (a 17-byte body, `{"status":-401}`) — read
 for both the deleted Team Chat and the plus chat above, after the bridge had been told about one of them.
-So absence from the list is a hint to ask, and `CHATINFO -401` is the answer; the bridge asks today for
-the chats Kakao names, and does not yet go looking for the ones it does not.
+So absence from the list is a hint to ask, and `CHATINFO -401` is the answer. The bridge acts on both:
+the ids in `delChatIds` are reported straight away, and for every room this login bridges that a
+non-empty chat list did not name, `CHATINFO` is asked once and a `-401` becomes the same report. Absence
+from the list is never acted on by itself, because a group chat with no recent traffic is absent from it
+for a boring reason. The report says "gone for this account", so the framework drops this account from the
+room and leaves the room standing when another bridged account is still in it; with a single account it
+removes the portal and the room. A chat that comes back — rejoined, or a new message — is bridged again,
+which is what a person who rejoins expects. Both steps are logged:
+
+```text
+INF Kakao says these chats are no longer in this account's list chat_ids=[…]
+INF Kakao says this account is no longer in that chat chat_id=…
+INF Chat list bridged: rooms created/updated and messages loaded rooms=6 … asked=3 left=1
+```
 
 Each entry's `t` names the chat class, and the classes differ in more than the label — measured values:
 

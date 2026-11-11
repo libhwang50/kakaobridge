@@ -164,6 +164,25 @@ problem looks like.
 With `direct_media` off (the default), media is copied at bridging time, and a photo that Kakao will no
 longer serve then is unrecoverable — see `Media unavailable` in the section above.
 
+## A room stays after you left or deleted the chat
+
+Kakao reports a chat being gone in two ways, and the bridge acts on both at session start: `delChatIds`
+(what was removed since the last session's point) and `CHATINFO` answering `-401` for a chat this account
+is no longer in. Leaving a chat, deleting one, or unfollowing a plus chat therefore stops the room being
+fed, and with a single bridged account the portal and its Matrix room are removed. The room is kept if
+another bridged account is still in it: the report is always “gone for me”, never “gone for everyone”.
+
+If a room stays anyway, the log says why:
+
+* `Chat list bridged: … asked=N left=0` — the check ran and Kakao still answers for every room it was
+  asked about, so this account is still in them as far as Kakao is concerned.
+* `Kakao did not answer whether this account is still in that chat` (debug level) — the question was
+  asked and something else failed, usually a session that dropped. Nothing is acted on from a guess.
+* A room bridged under an *older* login is not part of this at all; see the relogin note under “Login
+  does not work” and clean it up with `delete-portal`.
+
+Rejoining a chat brings the room back: the next message for it creates the portal again.
+
 ## A room's queue is full
 
 `Portal event channel is full, queue will block` means one room produced events faster than the bridge could

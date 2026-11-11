@@ -35,6 +35,7 @@ mobile sub-device per account**, so one Kakao account can be bridged by one brid
 | history | ✅ the chat list and its recent messages are bridged on login | — |
 | rooms | 1:1 chats, the self-memo chat, **group chats** (Regular and Team: the name and picture the members gave them, and for a Team Chat the intro the host wrote, which becomes the room topic), **Open Chat rooms** (name, picture, and the room's intro as the topic — Kakao keeps those on the room's Open Link rather than on the chat, and the bridge reads them) | ⚠️ creating a Kakao chat from Matrix is not implemented |
 | group joins and leaves | ✅ as room membership (Kakao sends them as a notice in the reader's language, so the notice text is not bridged) | ⚠️ a Matrix join or leave is not announced in Kakao |
+| a chat you leave or delete on Kakao | ✅ the room stops being bridged and is removed unless another bridged account is in it — Kakao sends no push for this either, so the bridge asks at session start (see `docs/protocol-notes.md` §6) | — |
 | the people in a room | ✅ names and pictures, taken from that room's member list; someone a big room's list did not carry is asked about in the room they spoke in, which is how an Open Chat room shows its open profiles | ⚠️ Kakao never pushes a profile change, so a person's ghost is refreshed when that room is read again |
 
 End-to-end encryption, double puppeting (`login-matrix`), relay mode and the multi-user state machine
