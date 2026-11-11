@@ -118,6 +118,16 @@ could ask for it.
 sessions hold which chats, the client calls the drawer REST API (`/{agent}/friends/diff.json`). The
 bridge reads the LOCO list; `cmd/kksessions` prints both so a mismatch can be seen.
 
+**What the list does and does not say about a chat that is gone.** `LOGINLIST` also carries
+`delChatIds`: the chats removed since the cursor this session resumed from. Acting on it is sound — the
+framework deletes the portal or leaves the room, which is what a person expects — but it is not complete.
+Measured on one account: an unfollowed plus chat appeared there, while a Team Chat the same account had
+deleted was absent from `chatDatas` *and* absent from `delChatIds`. What does answer for it is
+`CHATINFO`, which refuses such a chat with **inner `-401`** (a 17-byte body, `{"status":-401}`) — read
+for both the deleted Team Chat and the plus chat above, after the bridge had been told about one of them.
+So absence from the list is a hint to ask, and `CHATINFO -401` is the answer; the bridge asks today for
+the chats Kakao names, and does not yet go looking for the ones it does not.
+
 Each entry's `t` names the chat class, and the classes differ in more than the label — measured values:
 
 | `t` | what it is | what the entry carries |

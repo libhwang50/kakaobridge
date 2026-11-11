@@ -39,6 +39,13 @@ ones in `docs/bridgev2-notes.md`.
 * **`KICKOUT`** — a second session started with the same credential: a second bridge instance, or a
   `cmd/locoprobe`/`cmd/locoauth` run against the bridge's tokens. Stop the other one.
 
+* **After `relogin`, the old rooms are still there** — a one-to-one chat's portal is keyed to the login
+  that bridged it, so a new login for the same Kakao account makes new rooms for those chats, and the old
+  rooms stay exactly as they were: joined, visible under “rooms outside spaces”, and no longer fed. They are
+  orphans, not duplicates of a live room. To clean up: run `delete-portal` **in each old room** (that
+  removes the portal keyed to the old login and makes the bot leave), then leave or purge the room in your
+  client. Group rooms are not affected — they are not keyed to a login.
+
 To check a credential without touching the running bridge, use a *separate* device or accept that the
 probe will kick the bridge: `go run ./cmd/kkrenew` says whether the token pair still renews itself.
 

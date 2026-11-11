@@ -97,10 +97,11 @@ func (c *Client) startSession(ctx context.Context) (int, error) {
 	c.mu.Unlock()
 
 	if len(state.Deleted) > 0 {
-		// Kakao names the chats that are gone since the cursor this session resumed from. What "gone"
-		// covers - left, deleted from the list locally, unfollowed, archived - has not been measured, and
-		// acting on a guess would take rooms away from people for the wrong reason, so the bridge records
-		// the fact here and acts on it once the meaning is known.
+		// Kakao names the chats that are gone since the cursor this session resumed from, and
+		// ingestChatList below turns that into a ChatDelete for the framework. The names are logged first
+		// because this array is not the whole story: a Team Chat the account deleted was absent from the
+		// chat list and absent from here, and only asking CHATINFO about it showed it was gone for this
+		// account (inner -401).
 		lg.Info().Interface("chat_ids", state.Deleted).
 			Msg("Kakao says these chats are no longer in this account's list")
 	}
