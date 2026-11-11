@@ -4,6 +4,7 @@ package kknet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -129,8 +130,7 @@ func (c *Client) Connect(ctx context.Context) {
 		return
 	}
 
-	tok, err := c.auth.Login(ctx)
-	if err != nil {
+	if err := c.renewCredential(ctx); err != nil {
 		var se *kakao.StatusError
 		c.mu.Lock()
 		c.loggedIn = false
@@ -147,26 +147,6 @@ func (c *Client) Connect(ctx context.Context) {
 		}
 		c.login.BridgeState.Send(status.BridgeState{StateEvent: ev, Message: msg})
 		return
-	}
-
-	c.mu.Lock()
-	c.meta.AccessToken = tok.AccessToken
-	c.meta.RefreshToken = tok.RefreshToken
-	c.meta.Recipe = tok.Recipe
-	c.meta.UserID = tok.UserID
-	c.meta.AccountID = tok.AccountID
-	if tok.DisplayAccountID != "" {
-		c.meta.DisplayAccount = tok.DisplayAccountID
-	}
-	c.meta.MintedAt = time.Now().Unix()
-	c.loggedIn = true
-	c.lastErr = ""
-	c.mu.Unlock()
-
-	// The credential is what the login flow stored; keep the store in step with it. Kakao hands back
-	// the same pair for a registered device today, but this is the place that would notice a rotation.
-	if err := c.login.Save(ctx); err != nil {
-		c.login.Log.Warn().Err(err).Msg("Failed to store the renewed Kakao credential")
 	}
 
 	// Branding before the session: the icon only needs the homeserver, and bridgev2 takes it from the
@@ -227,6 +207,52 @@ func asStatus(err error, target **kakao.StatusError) bool {
 		return true
 	}
 	return false
+}
+
+// renewCredential asks Kakao for a new token pair with the account password, which is how a registered
+// device keeps itself alive (docs/protocol-notes.md §4). Connect does this once per session; the
+// reconnect loop has to do it too. A session token that Kakao has stopped accepting is answered with
+// LOGINLIST inner status -950, and no number of retries with that same token opens a session: on a live
+// bridge that state repeated for thirteen hours because the reconnect path only ever retried.
+func (c *Client) renewCredential(ctx context.Context) error {
+	tok, err := c.auth.Login(ctx)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.meta.AccessToken = tok.AccessToken
+	c.meta.RefreshToken = tok.RefreshToken
+	c.meta.Recipe = tok.Recipe
+	c.meta.UserID = tok.UserID
+	c.meta.AccountID = tok.AccountID
+	if tok.DisplayAccountID != "" {
+		c.meta.DisplayAccount = tok.DisplayAccountID
+	}
+	c.meta.MintedAt = time.Now().Unix()
+	c.loggedIn = true
+	c.lastErr = ""
+	c.mu.Unlock()
+
+	// The credential is what the login flow stored; keep the store in step with it. Kakao hands back
+	// the same pair for a registered device today, but this is the place that would notice a rotation.
+	if err := c.login.Save(ctx); err != nil {
+		c.login.Log.Warn().Err(err).Msg("Failed to store the renewed Kakao credential")
+	}
+	return nil
+}
+
+// credentialIsDead says whether Kakao refused the device itself rather than this session. Only a new
+// passcode approval fixes that, so the bridge asks a human instead of retrying.
+func credentialIsDead(err error) bool {
+	var se *kakao.StatusError
+	return asStatus(err, &se) && se.Status == -100
+}
+
+// sessionTokenRefused says whether Kakao rejected the token the session was opened with, as opposed to
+// some other trouble. It is the one failure a renewal can answer, so it is worth naming.
+func sessionTokenRefused(err error) bool {
+	var inner *loco.InnerError
+	return errors.As(err, &inner) && inner.Verb == "LOGINLIST" && inner.Status == -950
 }
 
 // Disconnect closes the session. Nothing to close yet: Connect does not hold a LOCO connection.

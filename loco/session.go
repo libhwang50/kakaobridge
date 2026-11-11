@@ -65,6 +65,18 @@ func readFrame(r io.Reader) (Frame, error) {
 	}, nil
 }
 
+// InnerError is a verb's own status, which arrives inside a frame that was delivered perfectly well. It
+// is separate from a transport failure because what to do about it differs: -950 from LOGINLIST means the
+// session token handed to Kakao is not accepted, and only a new login.json pair helps (measured: a
+// deliberately wrong access token gives -950 while CHECKIN still says ok, and a wrong device id gives
+// -1). Asking again with the same token cannot recover, so the bridge renews instead of retrying.
+type InnerError struct {
+	Verb   string
+	Status int64
+}
+
+func (e *InnerError) Error() string { return fmt.Sprintf("%s inner status %d", e.Verb, e.Status) }
+
 type Config struct {
 	TicketHost   string
 	LocoSNI      string
@@ -182,7 +194,7 @@ func Dial(cfg Config, lg *log.Logger) (*Session, error) {
 	}
 	if st := InnerStatus(lr.Body); st != 0 {
 		lc.Close()
-		return nil, fmt.Errorf("LOGINLIST inner status %d", st)
+		return nil, &InnerError{Verb: "LOGINLIST", Status: st}
 	}
 	lg.Printf("LOGINLIST ok bodylen=%d", len(lr.Body))
 	s.LastLoginlist = lr.Body

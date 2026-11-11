@@ -96,6 +96,15 @@ func (c *Client) startSession(ctx context.Context) (int, error) {
 	}
 	c.mu.Unlock()
 
+	if len(state.Deleted) > 0 {
+		// Kakao names the chats that are gone since the cursor this session resumed from. What "gone"
+		// covers - left, deleted from the list locally, unfollowed, archived - has not been measured, and
+		// acting on a guess would take rooms away from people for the wrong reason, so the bridge records
+		// the fact here and acts on it once the meaning is known.
+		lg.Info().Interface("chat_ids", state.Deleted).
+			Msg("Kakao says these chats are no longer in this account's list")
+	}
+
 	lg.Info().Int("chats", len(state.Rooms)).Int64("push_cursor", state.LastTokenID).
 		Msg("LOCO session online with a chat list")
 
@@ -581,9 +590,17 @@ func (c *Client) sessionStoppedOrReplaced(sess *loco.Session) bool {
 // reconnect rebuilds the LOCO session with backoff. Kakao has no "resume" for a dropped session:
 // a new CHECKIN assigns a chat host and LOGINLIST starts from the last cursor we have, which is why
 // the resume cursor is kept in the credential rather than in the session.
+//
+// A session that is refused with "LOGINLIST inner status -950" is not a dropped link: that is what Kakao
+// answers when the session token it was given is no longer accepted (docs/protocol-notes.md §4), and the
+// only thing that helps is a new pair from login.json. So a refusal renews the credential and tries once
+// more with it; if even the new token is refused, or Kakao refuses the device itself, the bridge says so
+// and stops, because what is needed is a person running login again. Before this, that state retried
+// every couple of minutes for thirteen hours on a live bridge without ever asking for a new token.
 func (c *Client) reconnect(ctx context.Context) {
 	log := c.login.Log
 	delay := 5 * time.Second
+	renewed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -603,6 +620,32 @@ func (c *Client) reconnect(ctx context.Context) {
 		})
 		if _, err := c.startSession(ctx); err != nil {
 			log.Warn().Err(err).Msg("Reopening the Kakao connection failed")
+			if sessionTokenRefused(err) {
+				if renewed {
+					log.Warn().Msg("Kakao refuses this device's session token even after a renewal")
+					c.login.BridgeState.Send(status.BridgeState{
+						StateEvent: status.StateBadCredentials,
+						Message: "Kakao would not accept this device's session token, and asking for a new one " +
+							"did not help. Run login again to verify the device on your phone.",
+					})
+					return
+				}
+				if rerr := c.renewCredential(ctx); rerr != nil {
+					renewed = true
+					if credentialIsDead(rerr) {
+						c.login.BridgeState.Send(status.BridgeState{
+							StateEvent: status.StateBadCredentials,
+							Message: "Kakao no longer accepts this device (it was deregistered, or its session " +
+								"ended and it was never registered). Run login again to verify it on your phone.",
+						})
+						return
+					}
+					log.Warn().Err(rerr).Msg("Kakao would not renew this credential")
+				} else {
+					renewed = true
+					log.Info().Msg("Renewed the Kakao credential; the next attempt uses a new token")
+				}
+			}
 			delay = min(delay*2, 2*time.Minute)
 			continue
 		}

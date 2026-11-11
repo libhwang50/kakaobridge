@@ -9,6 +9,7 @@ package kknet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -170,10 +171,33 @@ func (c *Client) firstDirectMediaFailure() bool {
 	return true
 }
 
-// chatLogByID reads one Kakao message. Kakao's history call is "everything after this log id" with no
-// upper bound, so this asks just after the message and picks it out of the answer; a chat that has moved
-// a long way on since the message costs one page of history to answer.
+// chatLogByID reads one Kakao message, once more if the first attempt found a session that had already
+// gone away. Kakao's history call is "everything after this log id" with no upper bound, so this asks
+// just after the message and picks it out of the answer; a chat that has moved a long way on since the
+// message costs one page of history to answer.
 func (c *Client) chatLogByID(ctx context.Context, chatID, logID int64) (loco.ChatLog, error) {
+	cl, err := c.readChatLog(ctx, chatID, logID)
+	if err == nil || !sessionWentAway(err) {
+		return cl, err
+	}
+	// A broken pipe means the session this request travelled on is dead. The pump replaces it when it
+	// can, so one short wait covers the ordinary case of a session being re-established right now.
+	select {
+	case <-ctx.Done():
+		return cl, err
+	case <-time.After(2 * time.Second):
+	}
+	return c.readChatLog(ctx, chatID, logID)
+}
+
+// sessionWentAway says whether a failed LOCO call failed on the way to Kakao rather than at Kakao, which
+// is worth trying once more because the next attempt may use a session the pump has just rebuilt.
+func sessionWentAway(err error) bool {
+	var inner *loco.InnerError
+	return !errors.As(err, &inner)
+}
+
+func (c *Client) readChatLog(ctx context.Context, chatID, logID int64) (loco.ChatLog, error) {
 	sess := c.session()
 	if sess == nil {
 		return loco.ChatLog{}, fmt.Errorf("kknet: no LOCO session to ask about chat %d", chatID)

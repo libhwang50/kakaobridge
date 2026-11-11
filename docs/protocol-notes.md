@@ -78,6 +78,13 @@ namespaces.
   database and re-running the passcode flow fails — the slot is still held. `network.tokens_file`
   exists to carry the old identity into a new database.
 * **`status 12`** — the account id or password was not accepted.
+* **`LOGINLIST inner status -950`** — the session token handed to the LOCO handshake is not accepted.
+  `CHECKIN` still answers ok, because it carries no token, so the connection looks fine up to the point
+  the identity is used. Measured with a deliberately wrong access token; a wrong *device id* is answered
+  with **`-1`** instead, which is how the two are told apart. Retrying the session with that token cannot
+  recover: `login.json` is what mints one that works. A live bridge stayed in this state for thirteen
+  hours, retrying every couple of minutes, because its reconnect path retried the session and never asked
+  for a new token.
 * **`KICKOUT`** (a LOCO push) — a second session started with the same device credential. One session
   per device; running `cmd/locoprobe` with the bridge's tokens will do this to the running bridge.
 * The nonce seen in some login frames is a lead, not a requirement — the flows work without it.

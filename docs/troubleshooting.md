@@ -30,6 +30,12 @@ ones in `docs/bridgev2-notes.md`.
   predates the fix described in `docs/bridgev2-notes.md`.
 * **`TRANSIENT_DISCONNECT`, then `RECONNECTING` forever** — the network, or something else holding the
   same Kakao device credential. One LOCO session per device.
+* **`Reconnecting to KakaoTalk (retry in …)` for hours, with `LOGINLIST inner status -950` in the log** —
+  the session token was no longer accepted. `CHECKIN` answers ok because it carries no token, so the socket
+  opens and only the handshake fails. The bridge asks Kakao for a new pair and retries with it; if the new
+  one is refused too, it stops retrying and reports `BAD_CREDENTIALS`, because what is needed
+  then is `login` again on a device already signed in to the account
+  (`docs/protocol-notes.md` §4). Before that, this state retried for thirteen hours on its own.
 * **`KICKOUT`** — a second session started with the same credential: a second bridge instance, or a
   `cmd/locoprobe`/`cmd/locoauth` run against the bridge's tokens. Stop the other one.
 

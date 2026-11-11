@@ -9,6 +9,8 @@ package loco
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -154,5 +156,21 @@ func TestFileCommitBodyCarriesChecksumAndName(t *testing.T) {
 		if e.Key == "extra" {
 			t.Errorf("file commit carries extra=%v; the client omits it", e.Val)
 		}
+	}
+}
+
+// The wording of an inner-status error is what the bridge log already carries, and people grep for it.
+// Naming the type must not change the sentence.
+func TestAnInnerStatusSaysWhatItAlwaysSaid(t *testing.T) {
+	err := error(&InnerError{Verb: "LOGINLIST", Status: -950})
+	if got := err.Error(); got != "LOGINLIST inner status -950" {
+		t.Errorf("got %q", got)
+	}
+	var inner *InnerError
+	if !errors.As(fmt.Errorf("kknet: opening a LOCO session: %w", err), &inner) {
+		t.Fatal("the type did not survive wrapping")
+	}
+	if inner.Verb != "LOGINLIST" || inner.Status != -950 {
+		t.Errorf("got %+v", inner)
 	}
 }
