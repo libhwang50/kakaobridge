@@ -852,11 +852,29 @@ func (c *Client) handlePush(ctx context.Context, log zerolog.Logger, f loco.Fram
 		// credential. The pump ends and reconnects; the other side is not a Kakao user we can do
 		// anything about.
 		log.Warn().Msg("Kakao closed this session: another connection took the same device id")
+	case "LEFT":
+		// A chat has just gone out of this account's list: the live form of the delChatIds a login gets.
+		c.handleChatLeft(ctx, log, f)
 	default:
 		log.Debug().Str("cmd", f.Cmd).Int("body_len", len(f.Body)).
 			Str("body_hex", hex.EncodeToString(f.Body)).
 			Msg("Ignoring a LOCO push")
 	}
+}
+
+// handleChatLeft acts on a LEFT push. The push says only that the chat is no longer in this account's
+// list - deleting a Team Chat sends one at once, and a group chat the account left sends one when it
+// stops being there - so the bridge reports it as it reports delChatIds and lets the framework decide what
+// the room does. A chat that comes back is bridged again by its next message.
+func (c *Client) handleChatLeft(ctx context.Context, log zerolog.Logger, f loco.Frame) {
+	left, err := loco.ParseLeftPush(f.Body)
+	if err != nil {
+		log.Debug().Err(err).Msg("Could not parse a Kakao chat-left push")
+		return
+	}
+	log.Info().Int64("chat_id", left.ChatID).Int64("token_id", left.LastTokenID).
+		Msg("Kakao has taken this chat out of the account's list")
+	c.queueChatDelete(ctx, left.ChatID)
 }
 
 // handleLinkUpdate routes a changed Open Link to the room it describes. Only rooms whose CHATINFO has

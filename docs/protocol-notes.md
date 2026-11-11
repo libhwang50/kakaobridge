@@ -103,8 +103,8 @@ cost hours:
 
 The login frame carries the token and device id; `LOGINLIST` returns the chat list (§6); `PING` keeps
 the session alive. The server pushes on the same socket: messages as `MSG`, read markers as `DECUNREAD`,
-membership changes as `NEWMEM`/`DELMEM` (§7a), and an Open Chat room's name, intro or picture changing as
-`SYNCLINKUP` (§7b). A verb the bridge does not handle is logged with its body
+membership changes as `NEWMEM`/`DELMEM` (§7a), an Open Chat room's name, intro or picture changing as
+`SYNCLINKUP` (§7b), and a chat leaving this account's list as `LEFT` (§6). A verb the bridge does not handle is logged with its body
 in hex, so its name and shape can be read off a real event rather than guessed at.
 `Session.LastLoginlist` is exposed because the chat list arrives during the handshake, before any call
 could ask for it.
@@ -118,23 +118,32 @@ could ask for it.
 sessions hold which chats, the client calls the drawer REST API (`/{agent}/friends/diff.json`). The
 bridge reads the LOCO list; `cmd/kksessions` prints both so a mismatch can be seen.
 
-**What the list does and does not say about a chat that is gone.** `LOGINLIST` also carries
-`delChatIds`: the chats removed since the cursor this session resumed from. Acting on it is sound — the
-framework deletes the portal or leaves the room, which is what a person expects — but it is not complete.
-Measured on one account: an unfollowed plus chat appeared there, while a Team Chat the same account had
-deleted was absent from `chatDatas` *and* absent from `delChatIds`. What does answer for it is
-`CHATINFO`, which refuses such a chat with **inner `-401`** (a 17-byte body, `{"status":-401}`) — read
-for both the deleted Team Chat and the plus chat above, after the bridge had been told about one of them.
-So absence from the list is a hint to ask, and `CHATINFO -401` is the answer. The bridge acts on both:
-the ids in `delChatIds` are reported straight away, and for every room this login bridges that a
-non-empty chat list did not name, `CHATINFO` is asked once and a `-401` becomes the same report. Absence
-from the list is never acted on by itself, because a group chat with no recent traffic is absent from it
-for a boring reason. The report says "gone for this account", so the framework drops this account from the
-room and leaves the room standing when another bridged account is still in it; with a single account it
-removes the portal and the room. A chat that comes back — rejoined, or a new message — is bridged again,
-which is what a person who rejoins expects. Both steps are logged:
+**What the list does and does not say about a chat that is gone.** `LOGINLIST` carries `delChatIds`: the
+chats removed since the cursor this session resumed from. While a session is open the same fact arrives as
+a **`LEFT`** push, `{chatId, lastTokenId, serviceId, status}` — no user id, because it is not about another
+member. Two were read from one session on purpose: deleting a Team Chat sent a `LEFT` 90 ms after the room
+notice that came with the deletion, and leaving a group chat sent one two minutes later. What made the
+second one wait was not determined — the other member had left the chat first, so the server may have been
+pruning a chat nobody was in. Worth knowing when reading that: a Regular chat has no roles or permissions,
+and no member can delete one, so leaving is the only way out of it (confirmed by the operator of the test
+account, not measured on the wire).
+
+Neither form is complete. An unfollowed plus chat appeared in `delChatIds`; a Team Chat deleted long
+enough before the cursor was absent from `chatDatas` *and* from `delChatIds`, and no push arrived for it
+either. What does answer for that case is `CHATINFO`, which refuses such a chat with **inner `-401`** (a
+17-byte body, `{"status":-401}`) — read for both the deleted Team Chat and the plus chat.
+
+So the bridge acts on all three: the ids in `delChatIds` at login, `LEFT` as it happens, and at session
+start one `CHATINFO` per room this login bridges that a non-empty chat list did not name, where a `-401`
+becomes the same report. Absence from the list is never acted on by itself, because a group chat with no
+recent traffic is absent from it for a boring reason. Every one of these signals says "gone for this
+account" and nothing more — deleted and left look the same — so the report is marked as such: the framework
+drops this account from the room and leaves the room standing when another bridged account is still in it;
+with a single account it removes the portal and the room. A chat that comes back — rejoined, or a new
+message — is bridged again, which is what a person who rejoins expects. All three are logged:
 
 ```text
+INF Kakao has taken this chat out of the account's list chat_id=… token_id=…
 INF Kakao says these chats are no longer in this account's list chat_ids=[…]
 INF Kakao says this account is no longer in that chat chat_id=…
 INF Chat list bridged: rooms created/updated and messages loaded rooms=6 … asked=3 left=1

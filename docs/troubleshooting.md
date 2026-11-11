@@ -166,11 +166,13 @@ longer serve then is unrecoverable — see `Media unavailable` in the section ab
 
 ## A room stays after you left or deleted the chat
 
-Kakao reports a chat being gone in two ways, and the bridge acts on both at session start: `delChatIds`
-(what was removed since the last session's point) and `CHATINFO` answering `-401` for a chat this account
-is no longer in. Leaving a chat, deleting one, or unfollowing a plus chat therefore stops the room being
-fed, and with a single bridged account the portal and its Matrix room are removed. The room is kept if
-another bridged account is still in it: the report is always “gone for me”, never “gone for everyone”.
+Kakao reports a chat being gone in three ways, and the bridge acts on all of them: the `delChatIds` a
+login returns (what was removed since the last session's point), a `LEFT` push while a session is open, and
+`CHATINFO` answering `-401` for a room whose chat the list stopped naming. Leaving a chat, deleting one, or
+unfollowing a plus chat therefore stops the room being fed, and with a single bridged account the portal and
+its Matrix room are removed. The room is kept if another bridged account is still in it: the report is
+always “gone for me”, never “gone for everyone”. A `LEFT` push for a chat you left may arrive minutes after
+you left it, not at the moment you did.
 
 If a room stays anyway, the log says why:
 

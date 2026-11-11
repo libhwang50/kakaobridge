@@ -80,3 +80,32 @@ func TestPushBodiesNameTheirChat(t *testing.T) {
 		}
 	}
 }
+
+// A LEFT push is the live twin of delChatIds: it names one chat that has just gone out of this account's
+// list, along with the token id that chat reached. Read from a session that watched a Team Chat being
+// deleted and a group chat being left (docs/protocol-notes.md §6).
+func TestLeftPushNamesTheChatThatIsGone(t *testing.T) {
+	body := EncodeDoc([]Elem{
+		{Key: "chatId", Type: tInt64, Val: int64(484107646109432)},
+		{Key: "lastTokenId", Type: tInt64, Val: int64(3971414708550387772)},
+		{Key: "serviceId", Type: tNull},
+		{Key: "status", Type: tInt32, Val: int32(0)},
+	})
+	left, err := ParseLeftPush(body)
+	if err != nil {
+		t.Fatalf("a LEFT push that names a chat should parse: %v", err)
+	}
+	if left.ChatID != 484107646109432 || left.LastTokenID != 3971414708550387772 {
+		t.Errorf("read chat %d at token %d", left.ChatID, left.LastTokenID)
+	}
+	if _, err := ParseLeftPush(EncodeDoc([]Elem{{Key: "status", Type: tInt32, Val: int32(0)}})); err == nil {
+		t.Error("a LEFT push that names no chat is nothing the bridge can act on")
+	}
+	refused := EncodeDoc([]Elem{
+		{Key: "chatId", Type: tInt64, Val: int64(484107646109432)},
+		{Key: "status", Type: tInt32, Val: int32(-203)},
+	})
+	if _, err := ParseLeftPush(refused); err == nil {
+		t.Error("a refused LEFT must surface as an error, not an empty result")
+	}
+}

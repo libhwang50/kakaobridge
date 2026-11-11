@@ -157,3 +157,36 @@ func chatIDIn(elems []Elem) (int64, bool) {
 	}
 	return 0, false
 }
+
+// LeftPush is a LEFT push: one chat the server has just taken out of this account's list. The shape read
+// off the bridge's own session:
+//
+//	{chatId, lastTokenId, serviceId, status}
+//
+// There is no user id in it, because it is not about another member: this is the live twin of
+// delChatIds. Two were read from one session - one 90 ms after the room notice that came with deleting a
+// Team Chat, and one two minutes after a group chat this account had left, while the room itself still
+// exists for whoever is in it (docs/protocol-notes.md §6).
+type LeftPush struct {
+	ChatID      int64 `json:"chatId"`
+	LastTokenID int64 `json:"lastTokenId"`
+}
+
+func ParseLeftPush(body []byte) (*LeftPush, error) {
+	if inner := InnerStatus(body); inner != 0 {
+		return nil, fmt.Errorf("loco: %w", &InnerError{Verb: "LEFT", Status: inner})
+	}
+	elems, _, err := DecodeDoc(body, 0)
+	if err != nil {
+		return nil, fmt.Errorf("loco: decoding LEFT push: %w", err)
+	}
+	id, ok := chatIDIn(elems)
+	if !ok {
+		return nil, fmt.Errorf("loco: LEFT push names no chat")
+	}
+	out := &LeftPush{ChatID: id}
+	if v := findKey(elems, "lastTokenId"); v != nil {
+		out.LastTokenID = toInt64(v)
+	}
+	return out, nil
+}
